@@ -57,7 +57,7 @@ Mac 工作台支持根级 Cmd/Ctrl+O 在书库、发现或推入的 Reader 页�
 - `reader_page.dart`：拥有会话，在框选、编辑或列表打开时停止自动阅读，屏蔽阅读器手势与翻页快捷键。保存再次检查内容快照和目标有效性，防止迟到编辑误存到新页。
 - 架构基线仅新增单向 `reader → annotations` UI 边；业务文件单独分类，未豁免分层或循环依赖检查。
 
-P1 页面自然方向以未处理的本地图片解码为准；后续已为新导入 PDF 记录 MediaBox/CropBox/有效区域与旋转，为 EPUB 记录 spine occurrence，并为 CBZ 记录解包路径与导入重命名映射。新 ZIP/CBZ 已记录中央目录 0 基条目索引、同规范路径 occurrence 和字节匹配结果；7Z 暂无原始目录 occurrence 清单。缩放/旋转/双页/RTL/拆图/连续流的通用变换已做纯函数测试；连续原图现已另补实际 Reader UI 集成，双页/多图画廊及纵向/瀑布宽图拆分均已另补实际 UI 集成，仍不等同于原生 App 验收。
+P1 页面自然方向以未处理的本地图片解码为准；后续已为新导入 PDF 记录 MediaBox/CropBox/有效区域与旋转，为 EPUB 记录 spine occurrence，并为 CBZ/7Z 记录解包路径与导入重命名映射。新 ZIP/7Z 导入均记录原始条目 0 基索引、同规范路径 occurrence、重复候选和字节匹配结果；原生 7Z 动态库仍待 Release 验收。缩放/旋转/双页/RTL/拆图/连续流的通用变换已做纯函数测试；连续原图现已另补实际 Reader UI 集成，双页/多图画廊及纵向/瀑布宽图拆分均已另补实际 UI 集成，仍不等同于原生 App 验收。
 
 ## 基线检查与已知环境问题
 
@@ -308,7 +308,7 @@ Runtime 优先读取当前 libraryKey 的安装内来源清单；文件夹原图
 
 对照方案 §3.1、P3 补齐 ZIP/CBZ 原始条目身份：新导入在后台 worker 中读取一次原文件中央目录，保留原始顺序和同规范化路径的所有 occurrence，不使用会按名称折叠重复条目的 Archive map 作为身份清单。对实际导入的每个图片资源重新读取条目原字节，使用大小和 SHA-256 与提取结果比较，之后原有 copy receipt 再验证目标副本与提取结果一致。普通条目同样校验字节，不能仅凭解压后的名字认定来源。
 
-页 locator 新增 `archiveEntryIndex`（全中央目录 0 基顺序）、`archiveEntryOccurrence`（同规范化路径 0 基顺序）、`archiveEntryCount`、原始 `archiveEntryName` 和解析方式。重复同名/路径别名先按实际提取字节找候选；若多个候选字节完全相同，则确定性选择第一个，并保留全部等价 `matchingEntryIndices`。这些原始名称仅作为数据，不用于输出路径拼接。验证解压输出不得超过已提取页的确切长度，单页校验上限 256 MiB；不匹配或异常时不登记不可靠来源，不发布导入结果，暂存清理。未修改原解压器的候选次序、旧 ZIP 路径校验或发布配置。旧 path-only receipt 仍可读取；7Z 暂没有原始中央目录枚举能力，仍只记录已验证提取副本的路径/哈希，不把此 ZIP occurrence 证据扩展到 7Z 原生插件。
+页 locator 新增 `archiveEntryIndex`（原始目录 0 基顺序）、`archiveEntryOccurrence`（同规范化路径 0 基顺序）、`archiveEntryCount`、原始 `archiveEntryName` 和解析方式。ZIP 与 7Z 都先按实际提取字节找候选；若多个候选字节完全相同，则确定性选择第一个，并保留全部等价 `matchingEntryIndices`。这些原始名称仅作为数据，不用于输出路径拼接。验证解压输出不得超过已提取页的确切长度，单页校验上限 256 MiB；不匹配或异常时不登记不可靠来源，不发布导入结果，暂存清理。未修改原解压器的候选次序、旧 ZIP 路径校验或发布配置。旧 path-only receipt 仍可读取；7Z 原生动态库尚未在本机 Release 验收。
 
 现有 `.github/workflows/analyze.yml` 默认 Flutter 测试之后增加启用 `COMICNOTES_POC=true` 和 `COMICNOTES_WORKSPACE=true` 的串行批注/Reader 工作台/书库专项。继续使用原 Linux 原生测试库准备步骤；不覆盖默认回归和覆盖率结果，也不修改发布开关。Linux 上的 Mac 特定用例仍按已有平台条件跳过，不能据此替代原生 Mac 验收。工作流修改尚未推送、未在远端执行，不声称 CI 已绿。
 

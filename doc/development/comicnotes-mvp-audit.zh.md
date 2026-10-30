@@ -17,7 +17,7 @@
 | P2：独立 SQLite、迁移、CRUD、墓碑、来源/标签、错误态 | `annotation_repository_test.dart`、`annotation_session_test.dart`；事务迁移 schema 1→2，高版本拒绝，不随删漫画级联 | macOS 异常退出/进程被终止后的实际验收 |
 | P2：重开、同名、重导入、30 条连续操作与跳转 | 数据库 30 条提交/更新/墓碑和会话用例；同来源恢复与真实 Reader 面板/引用集成用例 | 30 条全流程在原生 App 中的连续交互验收，不能从单元循环推导真人操作通过 |
 | §4/P3：原件访问/副本，失联不丢批注 | PDF 默认可保留原件副本；CBZ/EPUB 保留原图资源副本；原件重关联验大小与 SHA；图片文件夹有独立安装内来源清单 | Apple 安全书签/文件提供者跨会话权限验收；旧导入无指纹及不同版本的手工逐页映射：运行时和 UI 均支持同尺寸及不同自然尺寸逐页映射，后者要求坐标复核并记录旧/新尺寸；arm64 Release 已实际将 1000×1500 旧页映射到 1500×1000 目标页并提交成功。其余权限与版本迁移缺项仍待完成 |
-| P3：CBZ entry/occurrence/order、至少两份样本 | `archive_provenance_test.dart` 覆盖普通/章节/范围映射、重复同名/别名/相同字节候选及导出像素；ZIP 新增中央目录顺序与字节证明 | 7Z 原始目录 occurrence 尚未枚举；zip_flutter/7zip 原生提取器在本机缺失，当前使用原 Dart ZIP 后备 |
+| P3：CBZ entry/occurrence/order、至少两份样本 | `archive_provenance_test.dart` 覆盖普通/章节/范围映射、重复同名/别名/相同字节候选及导出像素；ZIP 和 7Z 导入代码均保留原始条目序号、同路径 occurrence、重复候选和字节证明 | zip_flutter/7zip 原生动态库在本机专项测试中缺失，当前测试使用 Dart ZIP 后备；7Z 原生 App 仍待 Release 验收 |
 | P3：PDF page index/MediaBox/CropBox/Rotate，至少两份样本 | 两份真实 PDF 六页夹具；`pdf_source_test.dart` 实际 PDFium 几何和像素、300 dpi 原件选区、原件缺失降级、移动/副本故障 | 实际 App 原生插件与文件权限；不能将 PDFium FFI 测试称作 App 已构建 |
 | P3：图片 EPUB OPF/manifest/spine/重复出现 | `epub_source_test.dart` 两类夹具，重复资源和 spine 的独立页身份、哈希/导出/恢复 | 文本重排 EPUB 不属于首版；原生文件访问仍待验收 |
 | 文件夹自然排序、原图、移动/重导入 | `folder_source_test.dart`：引用/复制、相对路径+字节身份、原图导出、移动精确重关联、UUID/旧引用恢复 | 旧无指纹记录不自动升级；Android SAF 本轮不建立这种目录清单 |

@@ -1,6 +1,6 @@
 # ComicNotes 初版开发与验收记录
 
-已接入区域批注、整页笔记、书签、独立 SQLite、全书批注面板与标签、跨章节原图定位、引用链接处理、Markdown 图文导出、CBZ/图片 EPUB 原图副本映射、文件夹逐页来源清单、PDF 原件直接裁剪和全部批注备份。**完整初版仍在实现中：同指纹原件路径关联与同来源重新导入恢复已接入；Mac 书库外壳和可回退的 Reader 工作台已接入；备份恢复预览与缺失文档导入已接入；同自然尺寸旧页的手工逐页重映射已接入 Reader，窄窗/退出取消已复验，不同尺寸的坐标重审未完成；macOS 原生工具链和独立 QA App 已可运行，三格式、外部目录跨会话、长篇 profile 和系统外部批注引用定位已有原生证据；完整交付仍受不同尺寸坐标重审及其他未完成门禁限制。**
+已接入区域批注、整页笔记、书签、独立 SQLite、全书批注面板与标签、跨章节原图定位、引用链接处理、Markdown 图文导出、CBZ/图片 EPUB 原图副本映射、文件夹逐页来源清单、PDF 原件直接裁剪和全部批注备份。**完整初版仍在实现中：同指纹原件路径关联与同来源重新导入恢复已接入；Mac 书库外壳和可回退的 Reader 工作台已接入；备份恢复预览与缺失文档导入已接入；旧页手工逐页重映射支持同尺寸直接核对和不同自然尺寸逐页坐标复核，后者保持归一化坐标并需人工确认；macOS 三格式、外部目录跨会话、长篇 profile 和系统外部批注引用定位已有原生证据；不同尺寸映射尚缺 Release 原生交互复验及其他未完成门禁。**
 
 ## 基线和运行
 
@@ -40,7 +40,7 @@ bash tool/run_annotation_poc.sh
 
 **真实应用启用批注后，笔记提交到应用数据目录的独立 `annotations.db`。**重新打开同一漫画可恢复文档、页和批注 UUID；更新、删除在 SQL 提交成功后才改变内存。保存失败会重新打开保留文字的编辑器供重试，初始化失败会显示「批注暂不可用」，不会悄悄改成临时保存。
 
-不注入运行时服务的组件预览/测试仍使用内存会话，界面会明确标记「临时」「本轮阅读内有效」。`comicnotes://` 已接入应用路由，macOS Info.plist 已声明 scheme；2026-10-30 使用 QA 导出 Markdown 在 Obsidian 点击系统链接，已实际定位 `QA-Image-Spine` 第 1 页及目标批注。新导入 PDF/EPUB 的原文件定位、同指纹原件路径关联和重新导入恢复已接入；无指纹旧导入已有同自然尺寸的明确逐页确认映射；不同尺寸的坐标重审尚未实现。
+不注入运行时服务的组件预览/测试仍使用内存会话，界面会明确标记「临时」「本轮阅读内有效」。`comicnotes://` 已接入应用路由，macOS Info.plist 已声明 scheme；2026-10-30 使用 QA 导出 Markdown 在 Obsidian 点击系统链接，已实际定位 `QA-Image-Spine` 第 1 页及目标批注。新导入 PDF/EPUB 的原文件定位、同指纹原件路径关联和重新导入恢复已接入；无指纹旧导入支持同尺寸直接核对和不同自然尺寸逐页坐标复核，后者尚缺 Release 原生窗口确认。
 
 Mac 工作台支持根级 Cmd/Ctrl+O 在书库、发现或推入的 Reader 页面打开现有导入窗口；弹窗/右键菜单期间不叠加导入窗口，退出禁止状态不打开。书库支持 Cmd/Ctrl+F 查找本地漫画。启用批注的本地 Reader 支持 Cmd/Ctrl+F 查找批注，Cmd/Ctrl+Shift+N 在已加载的画廊当前原图或连续原图进入框选；编辑/列表输入期间不会触发新框选或翻页。自定义图片处理模式仍受前述范围限制。
 
@@ -542,7 +542,7 @@ CI 的开启两个开关专项现覆盖全部 Reader 和菜单，不再只运行
 - 外部目录授权：默认 Mac 文件夹导入会复制到沙箱，不能用其重开证明外部权限。已用「重新关联原件」明确关联 `build/native-qa/QA-Scoped-Folder` 外部目录；数据库核对 source URI。原进程完全退出后，新 profile 进程恢复并导出，清单为 `folderImageOriginal` / `001.png`，PNG 与外部原件逐像素相同。见 `logs/native-qa-directory-relocation-before-restart.json`、`logs/native-qa-directory-cross-session-export.json`。
 - 重复 profile 构建时 Cargokit 再次访问 Rust 1.92.0 分发校验文件，遇 TLS EOF；不关闭证书检查，跨会话验证使用刚成功构建的同一 profile 二进制，不把该重构建失败描述为成功。默认开关关闭的最新回退专项 11 项通过、1 项配置跳过。
 
-完整目标仍 active。系统外部引用唤起、中文输入法/修饰键/真实触控板及全部 P4 交互、30 条编辑与跨页跳转的完整原生组合、不同自然尺寸的人工坐标重审、最终 Release 重构建与交付包仍有缺项。
+完整目标仍 active。30 条编辑与跨页跳转的完整原生组合、不同自然尺寸复核的 Release 原生窗口确认、最终发行与其他门禁仍有缺项。
 
 ## 可试用 Release 候选 rc1（2026-10-30）
 
@@ -614,4 +614,8 @@ Mac 工作台的常驻批注列表支持点击取得焦点后按 ↑/↓ 选择�
 
 ## Release 候选 rc5（2026-10-30）
 
-为包含 macOS AppLinks 订阅修复的当前源码重新构建 arm64 Release。构建日志为 `logs/native-app-links-final-release-build.log`；`flutter analyze --no-pub` 无问题，生命周期测试 9 项全部通过。rc5 Release 原生复测中，从 Obsidian 点击外部 `comicnotes://` 后成功进入 `QA-Image-Spine` 第 1/3 页，显示目标蓝色选区和 `EPUB image spine native crop` 提示。候选归档 `build/deliverables/ComicNotes-macOS-arm64-rc5-final.zip` 的 SHA-256 为 `3c169354789ed32cf4f5bc6c1bc489fa774ac1a90f2ec4c54381f8a694ed8e1f`；解包后深层签名、arm64 架构和可执行文件哈希校验通过。不同自然尺寸坐标重审等限制仍未完成；rc5 仍是本机候选，不是完整初版结项。
+为包含 macOS AppLinks 订阅修复的当前源码重新构建 arm64 Release。构建日志为 `logs/native-app-links-final-release-build.log`；`flutter analyze --no-pub` 无问题，生命周期测试 9 项全部通过。rc5 Release 原生复测中，从 Obsidian 点击外部 `comicnotes://` 后成功进入 `QA-Image-Spine` 第 1/3 页，显示目标蓝色选区和 `EPUB image spine native crop` 提示。候选归档 `build/deliverables/ComicNotes-macOS-arm64-rc5-final.zip` 的 SHA-256 为 `3c169354789ed32cf4f5bc6c1bc489fa774ac1a90f2ec4c54381f8a694ed8e1f`；解包后深层签名、arm64 架构和可执行文件哈希校验通过。不同自然尺寸坐标复核已在后续实现，尚缺其 Release 原生交互复验；rc5 仍是本机候选，不是完整初版结项。
+
+## 不同自然尺寸页面坐标复核（2026-10-30）
+
+手工恢复允许旧页映射到不同自然尺寸的目标页，但提交前必须逐页勾选坐标复核。提交会更新目标页自然宽高，并在来源定位审计中记录旧/新尺寸及 `explicit-normalized-coordinate-review`；映射变更会清除该页复核状态。预览和恢复对话框均按目标页尺寸渲染选区。存储与 Dialog 专项测试通过，完整 `test/features/annotations` 共 196 项通过；尚需一次 Release 原生窗口操作确认。

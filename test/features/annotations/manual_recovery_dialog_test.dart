@@ -6,7 +6,7 @@ import 'package:image/image.dart' as image;
 import 'package:venera_next/features/annotations/annotations.dart';
 
 class Preview extends AnnotationManualRecoveryPreview {
-  Preview({int count = 2}) {
+  Preview({int count = 2, double targetWidth = 20, double targetHeight = 30}) {
     for (var i = 1; i <= count; i++) {
       final old = PageAnchor(
         documentId: 'old',
@@ -32,8 +32,8 @@ class Preview extends AnnotationManualRecoveryPreview {
               pageId: 'new-$i',
               chapterId: 'new',
               sourceImageNumber: i,
-              sourceWidth: 20,
-              sourceHeight: 30,
+              sourceWidth: targetWidth,
+              sourceHeight: targetHeight,
             ),
             sourceIdentity: 'target/$i.png',
             assetUri: 'file:///target/$i.png',
@@ -74,13 +74,16 @@ class Preview extends AnnotationManualRecoveryPreview {
   bool fail = false;
   Completer<void>? pending;
   Map<String, String>? mapping;
+  Set<String>? reviewedDifferentDimensions;
   @override
   Future<bool> commit({
     required Map<String, String> pageMapping,
+    Set<String> reviewedDifferentDimensions = const {},
     required bool Function() isCurrent,
   }) async {
     commits++;
     mapping = Map.of(pageMapping);
+    this.reviewedDifferentDimensions = Set.of(reviewedDifferentDimensions);
     await pending?.future;
     if (!isCurrent()) return false;
     if (fail) throw StateError('write failed');
@@ -154,7 +157,7 @@ void main() {
       final overlay = tester.widget<AnnotationOverlay>(
         find.byType(AnnotationOverlay),
       );
-      expect(overlay.page.pageId, 'old-1');
+      expect(overlay.page.pageId, 'new-1');
       expect(overlay.annotations.single.rect!.x0, .1);
       await tester.tap(find.byTooltip('下一张旧页'));
       await tester.pumpAndSettle();
@@ -378,4 +381,32 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('different dimensions require a per-page coordinate review', (
+    tester,
+  ) async {
+    final preview = Preview(count: 1, targetWidth: 40, targetHeight: 60);
+    await mount(tester, ({required isCurrent}) async => preview);
+    await tester.pumpAndSettle();
+    await choose(tester, 1);
+    expect(find.textContaining('不同尺寸页面上的每个选区'), findsOneWidget);
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+    await tester.ensureVisible(find.textContaining('不同尺寸页面上的每个选区'));
+    await tester.tap(find.textContaining('不同尺寸页面上的每个选区'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+    await tester.ensureVisible(find.text('我已逐页核对目标内容和所有选区'));
+    await tester.tap(find.text('我已逐页核对目标内容和所有选区'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认恢复旧批注'));
+    await tester.pumpAndSettle();
+    expect(await result, isTrue);
+    expect(preview.reviewedDifferentDimensions, {'old-1'});
+  });
 }

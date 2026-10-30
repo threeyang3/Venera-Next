@@ -502,6 +502,7 @@ class AnnotationRepository implements AnnotationStore {
   void applyManualRecovery({
     required ManualAnnotationRecoveryPlan plan,
     required Map<String, String> pageMapping,
+    Set<String> reviewedDifferentDimensions = const {},
   }) {
     _check();
     runSqliteTransaction(db, () {
@@ -523,13 +524,18 @@ class AnnotationRepository implements AnnotationStore {
           pageMapping.values.toSet().length != oldPages.length) {
         throw ArgumentError('必须逐页指定唯一目标，不能遗漏或合并旧页');
       }
+      if (!reviewedDifferentDimensions.every(pageMapping.keys.contains)) {
+        throw ArgumentError('不同尺寸复核记录包含未映射的旧页');
+      }
       for (final entry in pageMapping.entries) {
         final before = oldPages[entry.key]!, after = targets[entry.value];
-        if (after == null ||
-            before.anchor.sourceWidth != after.anchor.sourceWidth ||
-            before.anchor.sourceHeight != after.anchor.sourceHeight ||
-            after.assetUri == null) {
-          throw StateError('目标页不存在、失联或自然尺寸不同，需要另行核对坐标');
+        if (after == null || after.assetUri == null) {
+          throw StateError('目标页不存在或失联');
+        }
+        if ((before.anchor.sourceWidth != after.anchor.sourceWidth ||
+                before.anchor.sourceHeight != after.anchor.sourceHeight) &&
+            !reviewedDifferentDimensions.contains(entry.key)) {
+          throw StateError('自然尺寸不同，必须先完成坐标复核');
         }
       }
       // Retire all old unique identity keys first, allowing explicit page swaps.
@@ -542,12 +548,14 @@ class AnnotationRepository implements AnnotationStore {
       for (final entry in pageMapping.entries) {
         final before = oldPages[entry.key]!, after = targets[entry.value]!;
         db.execute(
-          '''UPDATE source_pages SET chapter_id=?,source_identity=?,source_image_number=?,display_cache_uri=?,source_locator_json=?
+          '''UPDATE source_pages SET chapter_id=?,source_identity=?,source_image_number=?,source_width=?,source_height=?,display_cache_uri=?,source_locator_json=?
           WHERE document_id=? AND page_id=?''',
           [
             after.anchor.chapterId,
             after.sourceIdentity,
             after.anchor.sourceImageNumber,
+            after.anchor.sourceWidth,
+            after.anchor.sourceHeight,
             after.assetUri,
             jsonEncode({
               ...after.locator,
@@ -555,6 +563,15 @@ class AnnotationRepository implements AnnotationStore {
                 'previousSourceIdentity': before.sourceIdentity,
                 'previousChapterId': before.anchor.chapterId,
                 'previousLocator': before.locator,
+                'previousSourceWidth': before.anchor.sourceWidth,
+                'previousSourceHeight': before.anchor.sourceHeight,
+                'coordinateReview':
+                    (before.anchor.sourceWidth != after.anchor.sourceWidth ||
+                        before.anchor.sourceHeight != after.anchor.sourceHeight)
+                    ? 'explicit-normalized-coordinate-review'
+                    : 'same-natural-size',
+                'targetSourceWidth': after.anchor.sourceWidth,
+                'targetSourceHeight': after.anchor.sourceHeight,
                 if (plan.previous.source case final source?)
                   'previousDocumentSource': {
                     'kind': source.kind,

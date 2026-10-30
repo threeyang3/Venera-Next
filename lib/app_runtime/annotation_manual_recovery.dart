@@ -238,15 +238,8 @@ Future<AnnotationManualRecoveryPreview?> prepareManualAnnotationRecovery({
       previousDocumentId: previous.documentId,
       replacementDocumentId: target.documentId,
     );
-    if (targets.length < plan.previousPages.length ||
-        plan.previousPages.any(
-          (old) => !targets.any(
-            (target) =>
-                target.page.anchor.sourceWidth == old.anchor.sourceWidth &&
-                target.page.anchor.sourceHeight == old.anchor.sourceHeight,
-          ),
-        )) {
-      throw StateError('目标页数量不足或自然尺寸无法对应，请选择其他导入版本');
+    if (targets.length < plan.previousPages.length) {
+      throw StateError('目标页数量不足，请选择包含全部旧页的导入版本');
     }
     return _ManualPreview(
       store,
@@ -310,6 +303,7 @@ class _ManualPreview implements AnnotationManualRecoveryPreview {
   @override
   Future<bool> commit({
     required Map<String, String> pageMapping,
+    Set<String> reviewedDifferentDimensions = const {},
     required bool Function() isCurrent,
   }) async {
     if (_committing || !_current(isCurrent)) return false;
@@ -346,7 +340,11 @@ class _ManualPreview implements AnnotationManualRecoveryPreview {
         }
       }
       if (!_current(isCurrent)) return false;
-      store.applyManualRecovery(plan: plan, pageMapping: mapping);
+      store.applyManualRecovery(
+        plan: plan,
+        pageMapping: mapping,
+        reviewedDifferentDimensions: reviewedDifferentDimensions,
+      );
       _committed = true;
       return true;
     } finally {

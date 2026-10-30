@@ -119,11 +119,26 @@ class _ManualRecoveryDialogState extends State<_ManualRecoveryDialog> {
   final _mapping = <String, String>{};
   int _index = 0;
   bool _acknowledged = false, _busy = false;
+  final _reviewedDifferentDimensions = <String>{};
   String? _error;
   Future<void> _commit() async {
     if (_busy ||
         !_acknowledged ||
         _mapping.length != _pages.length ||
+        !_reviewedDifferentDimensions.containsAll(
+          _pages
+              .where((old) {
+                final selectedId = _mapping[old.anchor.pageId];
+                final target = _preview!.targets
+                    .where((item) => item.page.anchor.pageId == selectedId)
+                    .firstOrNull;
+                return target != null &&
+                    (old.anchor.sourceWidth != target.page.anchor.sourceWidth ||
+                        old.anchor.sourceHeight !=
+                            target.page.anchor.sourceHeight);
+              })
+              .map((page) => page.anchor.pageId),
+        ) ||
         !widget.isCurrent()) {
       return;
     }
@@ -134,6 +149,9 @@ class _ManualRecoveryDialogState extends State<_ManualRecoveryDialog> {
     try {
       final success = await _preview!.commit(
         pageMapping: Map.unmodifiable(_mapping),
+        reviewedDifferentDimensions: Set.unmodifiable(
+          _reviewedDifferentDimensions,
+        ),
         isCurrent: () => mounted && widget.isCurrent(),
       );
       if (!mounted) return;
@@ -160,7 +178,9 @@ class _ManualRecoveryDialogState extends State<_ManualRecoveryDialog> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 400),
           child: AspectRatio(
-            aspectRatio: page.anchor.sourceWidth / page.anchor.sourceHeight,
+            aspectRatio:
+                target.page.anchor.sourceWidth /
+                target.page.anchor.sourceHeight,
             child: LayoutBuilder(
               builder: (context, constraints) => Stack(
                 fit: StackFit.expand,
@@ -171,7 +191,7 @@ class _ManualRecoveryDialogState extends State<_ManualRecoveryDialog> {
                     gaplessPlayback: true,
                   ),
                   AnnotationOverlay(
-                    page: page.anchor,
+                    page: target.page.anchor,
                     transform: ViewportTransform(
                       constraints.maxWidth,
                       0,
@@ -230,12 +250,14 @@ class _ManualRecoveryDialogState extends State<_ManualRecoveryDialog> {
     final candidates = _preview!.targets
         .where(
           (target) =>
-              target.page.anchor.sourceWidth == page.anchor.sourceWidth &&
-              target.page.anchor.sourceHeight == page.anchor.sourceHeight &&
-              (!_mapping.values.contains(target.page.anchor.pageId) ||
-                  _mapping[id] == target.page.anchor.pageId),
+              !_mapping.values.contains(target.page.anchor.pageId) ||
+              _mapping[id] == target.page.anchor.pageId,
         )
         .toList();
+    final differentDimensions =
+        selected != null &&
+        (page.anchor.sourceWidth != selected.page.anchor.sourceWidth ||
+            page.anchor.sourceHeight != selected.page.anchor.sourceHeight);
     final notes = _preview!.annotations
         .where((note) => note.anchor.pageId == id)
         .toList();
@@ -310,7 +332,10 @@ class _ManualRecoveryDialogState extends State<_ManualRecoveryDialog> {
                       onChanged: _busy
                           ? null
                           : (value) => setState(() {
-                              if (value != null) _mapping[id] = value;
+                              if (value != null) {
+                                _mapping[id] = value;
+                                _reviewedDifferentDimensions.remove(id);
+                              }
                               _acknowledged = false;
                               _error = null;
                             }),
@@ -329,9 +354,28 @@ class _ManualRecoveryDialogState extends State<_ManualRecoveryDialog> {
                     if (candidates.isEmpty)
                       const Padding(
                         padding: EdgeInsets.only(top: 8),
-                        child: Text('没有未使用且自然尺寸一致的目标页。请检查其他页的选择，或重新导入合适版本。'),
+                        child: Text('没有未使用的目标页。请检查其他页的选择，或重新导入合适版本。'),
                       ),
                     if (selected != null) _targetImage(page, selected, notes),
+                    if (differentDimensions)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _reviewedDifferentDimensions.contains(id),
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() {
+                                if (value == true) {
+                                  _reviewedDifferentDimensions.add(id);
+                                } else {
+                                  _reviewedDifferentDimensions.remove(id);
+                                }
+                                _acknowledged = false;
+                              }),
+                        title: Text(
+                          '我已核对不同尺寸页面上的每个选区：${selected.page.anchor.sourceWidth.toInt()} × ${selected.page.anchor.sourceHeight.toInt()}（旧 ${page.anchor.sourceWidth.toInt()} × ${page.anchor.sourceHeight.toInt()}）',
+                        ),
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       value: _acknowledged,

@@ -193,6 +193,39 @@ void main() {
       expect(snapshot(), before);
     });
   }
+
+  test('different natural sizes require review and update page coordinates', () {
+    store.db.execute(
+      'UPDATE source_pages SET source_width=200,source_height=400 WHERE page_id=?',
+      [targetPages.first.pageId],
+    );
+    plan = store.prepareManualRecovery(
+      previousDocumentId: old.documentId,
+      replacementDocumentId: target.documentId,
+    );
+    final mapping = {
+      oldPages.first.pageId: targetPages.first.pageId,
+      oldPages.last.pageId: targetPages.last.pageId,
+    };
+    expect(
+      () => store.applyManualRecovery(plan: plan, pageMapping: mapping),
+      throwsStateError,
+    );
+    store.applyManualRecovery(
+      plan: plan,
+      pageMapping: mapping,
+      reviewedDifferentDimensions: {oldPages.first.pageId},
+    );
+    final mapped = store.sourcePage(old.documentId, oldPages.first.pageId)!;
+    expect(mapped.anchor.sourceWidth, 200);
+    expect(mapped.anchor.sourceHeight, 400);
+    final review = mapped.locator['manualMapping'] as Map;
+    expect(review['coordinateReview'], 'explicit-normalized-coordinate-review');
+    expect(review['previousSourceWidth'], 100);
+    expect(review['targetSourceWidth'], 200);
+    expect(store.list(old.documentId).single.anchor.sourceWidth, 200);
+  });
+
   test(
     'target evidence replaces current source while prior source stays in audit',
     () {

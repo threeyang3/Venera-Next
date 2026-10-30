@@ -11,6 +11,7 @@ abstract class AnnotationManualRecoveryPreview {
   List<AnnotationManualTargetPage> get targets;
   Future<bool> commit({
     required Map<String, String> pageMapping,
+    Set<String> reviewedDifferentDimensions = const {},
     required bool Function() isCurrent,
   });
   Future<void> dispose();

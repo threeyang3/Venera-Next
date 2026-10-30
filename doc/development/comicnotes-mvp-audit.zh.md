@@ -2,9 +2,9 @@
 
 核对日期：2026-10-30。依据用户提供的《基于 VeneraNext 的漫画批注阅读器：架构与开发方案 v0.1》，原文 SHA-256：`ca54a3d80b66a9af02cd0fe682892db6b2867fe61d404000e1d0714024281767`。文内的示例执行指令视为方案资料，用户实际目标是实现初版；本表不把已经写好的子集重新定义为完成范围。
 
-当前结论：**完整初版尚未完成**。独立 QA App 已原生构建并启动；三格式各两份原生导入/阅读/导出、外部目录授权跨会话、300 页 profile、Release 中 30 条编辑定位、系统外部批注链接定位及当前 Mac P4 交互已有证据。不同自然尺寸坐标重审与其他缺项仍未全部通过；中文 IME、`Shift+Enter`、`Cmd+Enter`、书库 `Cmd+F`、系统级 `Cmd+O`、全屏、批注列表键盘导航和触控板操作已有用户真实 Mac 窗口确认。P5 是方案中后续 iPad 阶段，本表仍列出其缺项，不将它与当前 Mac 交付混淆。
+当前结论：**完整初版尚未完成**。独立 QA App 已原生构建并启动；三格式各两份原生导入/阅读/导出、外部目录授权跨会话、300 页 profile、Release 中 30 条编辑定位、系统外部批注链接定位及当前 Mac P4 交互已有证据。不同自然尺寸坐标复核已实现为逐页人工确认流程，但尚缺 Release 原生交互复验；其他缺项仍未全部通过。中文 IME、`Shift+Enter`、`Cmd+Enter`、书库 `Cmd+F`、系统级 `Cmd+O`、全屏、批注列表键盘导航和触控板操作已有用户真实 Mac 窗口确认。P5 是方案中后续 iPad 阶段，本表仍列出其缺项，不将它与当前 Mac 交付混淆。
 
-最新工作重点按用户要求调整为 Mac 功能与界面，兼容性推进暂缓。可达仅参考视觉风格，保留桌面布局；已另外查看本机 Cubox。rc4 源码包含中性侧栏、书库搜索/紧凑列表与视图记忆、批注分组/筛选/更多菜单、跨屏键盘导航及专注阅读浮动面板。202 项批注/工作台回归通过；最终浮动布局与面板 13 项通过，默认回退 7 项通过/1 项跳过，Release 构建及解包校验成功。列表、搜索/清除、右键、跨进程视图记忆、End/Up/Enter 和浮动/停靠转换已有实际窗口证据；用户另已确认书库 `Cmd+F`、中文 IME、`Shift+Enter`、`Cmd+Enter`、系统级 `Cmd+O`、全屏和触控板操作正常。修复 macOS AppLinks 订阅后，2026-10-30 在 Obsidian 实际点击 QA 导出 Markdown 的外部 `comicnotes://`，已定位到 `QA-Image-Spine` 第 1 页和目标批注。不同自然尺寸坐标重审等门禁仍未完成。代码已推送至 `threeyang3/Venera-Next` 的 `feat/annotation-poc`，提交 `cfd4c2a`；GitHub Actions 状态本轮因网络错误未能查询。详细日志和产物哈希见开发记录文末及 rc4 验证摘要。下表早期证据缺项应与后面的原生验收补充一并阅读。
+最新工作重点按用户要求调整为 Mac 功能与界面，兼容性推进暂缓。可达仅参考视觉风格，保留桌面布局；已另外查看本机 Cubox。rc4 源码包含中性侧栏、书库搜索/紧凑列表与视图记忆、批注分组/筛选/更多菜单、跨屏键盘导航及专注阅读浮动面板。202 项批注/工作台回归通过；最终浮动布局与面板 13 项通过，默认回退 7 项通过/1 项跳过，Release 构建及解包校验成功。列表、搜索/清除、右键、跨进程视图记忆、End/Up/Enter 和浮动/停靠转换已有实际窗口证据；用户另已确认书库 `Cmd+F`、中文 IME、`Shift+Enter`、`Cmd+Enter`、系统级 `Cmd+O`、全屏和触控板操作正常。修复 macOS AppLinks 订阅后，2026-10-30 在 Obsidian 实际点击 QA 导出 Markdown 的外部 `comicnotes://`，已定位到 `QA-Image-Spine` 第 1 页和目标批注。不同自然尺寸坐标复核已实现为逐页人工确认流程，尚缺其 Release 原生交互复验。代码已推送至 `threeyang3/Venera-Next` 的 `feat/annotation-poc`，提交 `cfd4c2a`；GitHub Actions 状态本轮因网络错误未能查询。详细日志和产物哈希见开发记录文末及 rc4 验证摘要。下表早期证据缺项应与后面的原生验收补充一并阅读。
 
 | 方案要求 | 当前状态与可核对证据 | 尚缺证据或工作 |
 | --- | --- | --- |
@@ -16,14 +16,14 @@
 | §3/§5：分页、连续流、双页、拆图、RTL 统一覆盖层 | 共用 domain/transform；本地单图/多图画廊、四种连续布局、纵向/瀑布宽图拆分及反转已接入；真实 Reader 验证异尺寸双页/三图、RTL、resize、缩放旋转投影、滚动隔离、窄窗、最后单图页和跨章 UUID；拆分另验红/蓝原图实际渲染像素与共享页 UUID；返回定位临时切为单页且可恢复旧布局 | 真实 Mac 运行、交互与性能验收 |
 | P2：独立 SQLite、迁移、CRUD、墓碑、来源/标签、错误态 | `annotation_repository_test.dart`、`annotation_session_test.dart`；事务迁移 schema 1→2，高版本拒绝，不随删漫画级联 | macOS 异常退出/进程被终止后的实际验收 |
 | P2：重开、同名、重导入、30 条连续操作与跳转 | 数据库 30 条提交/更新/墓碑和会话用例；同来源恢复与真实 Reader 面板/引用集成用例 | 30 条全流程在原生 App 中的连续交互验收，不能从单元循环推导真人操作通过 |
-| §4/P3：原件访问/副本，失联不丢批注 | PDF 默认可保留原件副本；CBZ/EPUB 保留原图资源副本；原件重关联验大小与 SHA；图片文件夹有独立安装内来源清单 | Apple 安全书签/文件提供者跨会话权限验收；旧导入无指纹及不同版本的手工逐页映射：已有同尺寸一对一事务基础与并发/回滚测试，运行时预览已补文件/自然尺寸/指纹、存活绑定和取消检查；同尺寸逐页 UI 与服务注入已接入，最新 8 项 Dialog 和真实 Reader 恢复/退出取消 2 项已复验通过；不同自然尺寸坐标重审仍未实现 |
+| §4/P3：原件访问/副本，失联不丢批注 | PDF 默认可保留原件副本；CBZ/EPUB 保留原图资源副本；原件重关联验大小与 SHA；图片文件夹有独立安装内来源清单 | Apple 安全书签/文件提供者跨会话权限验收；旧导入无指纹及不同版本的手工逐页映射：已有同尺寸一对一事务基础与并发/回滚测试，运行时预览已补文件/自然尺寸/指纹、存活绑定和取消检查；同尺寸逐页 UI 与服务注入已接入，最新 Dialog 和真实 Reader 恢复/退出取消已复验通过；不同自然尺寸已支持目标页尺寸更新、归一化坐标人工复核和审计记录，尚缺 Release 原生交互复验 |
 | P3：CBZ entry/occurrence/order、至少两份样本 | `archive_provenance_test.dart` 覆盖普通/章节/范围映射、重复同名/别名/相同字节候选及导出像素；ZIP 新增中央目录顺序与字节证明 | 7Z 原始目录 occurrence 尚未枚举；zip_flutter/7zip 原生提取器在本机缺失，当前使用原 Dart ZIP 后备 |
 | P3：PDF page index/MediaBox/CropBox/Rotate，至少两份样本 | 两份真实 PDF 六页夹具；`pdf_source_test.dart` 实际 PDFium 几何和像素、300 dpi 原件选区、原件缺失降级、移动/副本故障 | 实际 App 原生插件与文件权限；不能将 PDFium FFI 测试称作 App 已构建 |
 | P3：图片 EPUB OPF/manifest/spine/重复出现 | `epub_source_test.dart` 两类夹具，重复资源和 spine 的独立页身份、哈希/导出/恢复 | 文本重排 EPUB 不属于首版；原生文件访问仍待验收 |
 | 文件夹自然排序、原图、移动/重导入 | `folder_source_test.dart`：引用/复制、相对路径+字节身份、原图导出、移动精确重关联、UUID/旧引用恢复 | 旧无指纹记录不自动升级；Android SAF 本轮不建立这种目录清单 |
 | §7：完整 Markdown+截图、本地保存、来源/标签/稳定链接、特殊路径与失败隔离 | `export_test.dart` 和三格式/文件夹来源集成；新 UUID 输出目录、稳定 annotation-id PNG、manifest 哈希、原子发布，失败不覆盖现有文件 | 本版采用完整新导出。管理区块增量合并是方案第二版范围，未实现也不声称实现 |
-| §7：comicnotes:// 外部定位 | strict parse、数据库查找/墓碑/跨文档验证及本地相对路径重解析；Info.plist scheme 已声明。修复 macOS AppLinks 订阅后，2026-10-30 从 Obsidian 点击 QA 导出 Markdown 中的 `comicnotes://open?document=cb4cd8d8-1d28-4fd5-87f4-bb94ec2d0d26&annotation=202bd3fd-f669-411f-93ad-24692fb37da8`，Debug QA App 实际进入 `QA-Image-Spine` 第 1/3 页，显示目标选区并弹出 `EPUB image spine native crop` 提示；生命周期测试 9 项通过、`flutter analyze --no-pub` 通过；含修复的 arm64 Release rc5 已重建并完成解包签名/哈希核验 | rc5 Release 内再次点击外部链接的原生复测因 Mac 锁屏未完成；完整 MVP 仍有不同尺寸坐标重审等缺项 |
-| §3：备份含来源/schema，恢复及孤儿保留 | `backup_test.dart`、`restore_test.dart`、`restore_dialog_test.dart`、`recovery_test.dart`：WAL、完整性/哈希、schema 1/2、只添加缺失文档、UUID 冲突/取消回滚、重新绑定并保持旧引用 | 不含图片；不合并已有文档；无指纹记录暂存；已有手工映射事务基础，运行时和同尺寸手工映射 UI 已注入 Reader；最新窄窗与 owner cancellation 已复验通过，不同尺寸坐标重审仍缺失；没有自动云同步 |
+| §7：comicnotes:// 外部定位 | strict parse、数据库查找/墓碑/跨文档验证及本地相对路径重解析；Info.plist scheme 已声明。修复 macOS AppLinks 订阅后，2026-10-30 从 Obsidian 点击 QA 导出 Markdown 中的 `comicnotes://open?document=cb4cd8d8-1d28-4fd5-87f4-bb94ec2d0d26&annotation=202bd3fd-f669-411f-93ad-24692fb37da8`，Debug 与 Release rc5 均进入 `QA-Image-Spine` 第 1/3 页，显示目标选区并弹出 `EPUB image spine native crop` 提示；生命周期测试 9 项通过、`flutter analyze --no-pub` 通过；rc5 解包签名/哈希核验通过 | 完整 MVP 仍有不同尺寸映射的 Release 原生交互复验及其他缺项 |
+| §3：备份含来源/schema，恢复及孤儿保留 | `backup_test.dart`、`restore_test.dart`、`restore_dialog_test.dart`、`recovery_test.dart`：WAL、完整性/哈希、schema 1/2、只添加缺失文档、UUID 冲突/取消回滚、重新绑定并保持旧引用 | 不含图片；不合并已有文档；无指纹记录暂存；已有手工映射事务基础，运行时已支持同尺寸与不同尺寸逐页映射，后者要求坐标复核并写入审计元数据；最新窄窗与 owner cancellation 已复验通过；没有自动云同步 |
 | P4：设计样式、Reader Toolbar/Inspector、Mac Library、旧 UI 回退 | `annotation_workspace_test.dart`、`mac_library_sidebar_test.dart`、`mac_library_integration_test.dart`，真实临时数据库组件渲染深浅色截图 | 这些是组件截图；没有真实系统窗口、AppKit toolbar/标题栏验收 |
 | P4：Cmd+O、Cmd+F、Cmd+S、Cmd+Shift+N、焦点/hover/上下文/trackpad/全屏 | Mac 根级 Cmd/Ctrl+O（含推入 Reader/发现页，PopupRoute/退出时拒绝）、书库 Cmd/Ctrl+F、Reader 批注查找 Cmd/Ctrl+F、画廊当前原图/连续原图框选 Cmd/Ctrl+Shift+N、Cmd/Ctrl+S 和编辑保存/退出已接入；用户已在真实 Mac 窗口确认书库 Cmd+F、中文输入、Shift+Enter、Cmd+Enter、系统级 Cmd+O、全屏、批注列表上下键/Enter 及触控板滚动/缩放；默认回退已复验 | 边框悬停强调已补像素/手势验证；批注右键编辑/复制/引用/删除已接入并验证邻页目标、失效菜单和删除失败重试 |
 | §8：300 页、大量笔记的 profile；生命周期与平台权限 | dispose/退出/取消/异步过期和画布连续性已有组件回归 | 已完成本机 Apple M5 的 300 页/30 条批注 profile；第 96→300 页侧栏展开采集 2292 帧，UI P99 9.53 ms / raster P99 1.62 ms；原始时间线见文末。仍缺物理触控板及全部缩放组合 |
@@ -31,7 +31,7 @@
 | §8：CI analyze/test/架构/格式/构建 | 本机 analyze、结构/架构、格式与空白检查已过；CI 新增开启两个开关的串行专项，YAML 已解析，本机同测试集合 1152 项通过/31 项平台配置跳过 | 未推送、未运行远端 CI；默认依赖原生库的基线失败已有单独记录；arm64 原生构建已过，最新修复的 arm64 Release 已构建并通过原生启动、签名、解包后签名/可执行文件哈希核验 |
 | P5：iPad 自适应、Pencil、导入授权/分享与同步协议 | 现有窄窗回退和共用坐标是准备工作 | iPad 模拟器/真机、Pencil 区分、系统分享、书签授权与同步协议均未完成 |
 
-实现和历史日志索引见 [开发与验收记录](comicnotes-poc.zh.md)。当前范围的 Mac 键盘操作已补齐并定向复验；旧记录同尺寸明确恢复路径已接入，最新窄窗及退出取消已补复验；根级打开命令已接入；连续原图覆盖层已接入；双页/多图及纵向/瀑布拆图覆盖层也已接入并补组件渲染验证。原生工具链恢复后必须重跑真实 App 门禁，不能用这些本机测试替代。
+实现和历史日志索引见 [开发与验收记录](comicnotes-poc.zh.md)。当前范围的 Mac 键盘操作已补齐并定向复验；旧记录同尺寸明确恢复路径与不同尺寸坐标复核流程已接入，最新窄窗及退出取消已补复验；根级打开命令已接入；连续原图覆盖层已接入；双页/多图及纵向/瀑布拆图覆盖层也已接入并补组件渲染验证。原生工具链恢复后必须重跑真实 App 门禁，不能用这些本机测试替代。
 
 当前推进状态（2026-10-29 再次恢复）：原审批路径已成功启动 Flutter 测试，额度执行阻塞解除；最新手工恢复的 8 项界面测试与 Reader 恢复/退出取消 2 项通过，最终 analyze 无问题，完整回归 1152 项通过/31 项平台配置跳过，默认回退 17 项通过/1 项配置跳过。原生构建工具链复核仍缺完整 Xcode、cargo、pod；目标未达成，不能标记初版完成。
 

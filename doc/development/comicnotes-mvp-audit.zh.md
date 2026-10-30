@@ -61,7 +61,7 @@
 - 外部目录授权：默认 Mac 文件夹导入会复制到沙箱，不能用其重开证明外部权限。已用「重新关联原件」明确关联 `build/native-qa/QA-Scoped-Folder` 外部目录；数据库核对 source URI。原进程完全退出后，新 profile 进程恢复并导出，清单为 `folderImageOriginal` / `001.png`，PNG 与外部原件逐像素相同。见 `logs/native-qa-directory-relocation-before-restart.json`、`logs/native-qa-directory-cross-session-export.json`。
 - 重复 profile 构建时 Cargokit 再次访问 Rust 1.92.0 分发校验文件，遇 TLS EOF；不关闭证书检查，跨会话验证使用刚成功构建的同一 profile 二进制，不把该重构建失败描述为成功。默认开关关闭的最新回退专项 11 项通过、1 项配置跳过。
 
-完整目标仍 active。中文输入法、`Shift+Enter` 换行、`Cmd+Enter` 保存、书库 `Cmd+F`、系统外部引用唤起、系统级 `Cmd/Ctrl+O`、真实触控板及主要 P4 交互已有 Mac 证据；不同自然尺寸的人工坐标重审、30 条编辑与跨页跳转的完整原生组合、Apple 公证与最终发行仍有缺项。当前带 AppLinks 修复的 arm64 Release 候选为 `build/deliverables/ComicNotes-macOS-arm64-rc5.zip`，解包签名和可执行文件哈希核验通过，详见 `doc/development/comicnotes-rc5-validation.json`。
+完整目标仍 active。中文输入法、`Shift+Enter` 换行、`Cmd+Enter` 保存、书库 `Cmd+F`、系统外部引用唤起、系统级 `Cmd/Ctrl+O`、真实触控板及主要 P4 交互已有 Mac 证据；不同自然尺寸的人工坐标重审、30 条编辑与跨页跳转的完整原生组合、Apple 公证与最终发行仍有缺项。当前带 AppLinks 修复的 arm64 Release 候选归档为 `build/deliverables/ComicNotes-macOS-arm64-rc5-final.zip`，解包签名和可执行文件哈希核验通过；Release 内复点外部链接因 Mac 锁屏未完成，详见 `doc/development/comicnotes-rc5-validation.json`。
 
 ## Release 候选 rc1（2026-10-30）
 

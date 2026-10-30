@@ -614,4 +614,4 @@ Mac 工作台的常驻批注列表支持点击取得焦点后按 ↑/↓ 选择�
 
 ## Release 候选 rc5（2026-10-30）
 
-为包含 macOS AppLinks 订阅修复的当前源码重新构建 arm64 Release。构建日志为 `logs/native-app-links-final-release-build.log`；`flutter analyze --no-pub` 无问题，生命周期测试 9 项全部通过。新包 `build/deliverables/ComicNotes-macOS-arm64-rc5.zip` 的 SHA-256 为 `dd8918a9160f19c540e0b65fb2cb0235531c21856c3df83bb800f7c3613f5a4c`；解包后 `codesign --verify --deep --strict` 通过，包内可执行文件为 arm64，SHA-256 为 `65fd240db868dbc90dab4db83cd3f21c51e000c5a25b7f35e60dfd5a385ffbea`。包内说明和 `candidate-manifest.json` 已记录外部 `comicnotes://` 定位通过，以及不同自然尺寸坐标重审等剩余限制；rc5 仍是本机候选，不是完整初版结项。
+为包含 macOS AppLinks 订阅修复的当前源码重新构建 arm64 Release。构建日志为 `logs/native-app-links-final-release-build.log`；`flutter analyze --no-pub` 无问题，生命周期测试 9 项全部通过。候选归档 `build/deliverables/ComicNotes-macOS-arm64-rc5-final.zip` 的 SHA-256 为 `f09255d5d49e3089d188aeb853ca25a8f9d285a638f5b543442b534d6a250e9c`；解包后 `codesign --verify --deep --strict` 通过，包内可执行文件为 arm64，SHA-256 为 `65fd240db868dbc90dab4db83cd3f21c51e000c5a25b7f35e60dfd5a385ffbea`。外部 `comicnotes://` 在修复版 Debug 原生窗口验证成功；因 Mac 随后锁屏，rc5 Release 进程内复点未完成。包内说明与 `candidate-manifest.json` 已标明此边界及不同自然尺寸坐标重审等剩余限制；rc5 仍是本机候选，不是完整初版结项。

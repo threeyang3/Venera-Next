@@ -1,11 +1,12 @@
 {
   "candidate": "rc5",
-  "package": "build/deliverables/ComicNotes-macOS-arm64-rc5.zip",
-  "packageSha256": "dd8918a9160f19c540e0b65fb2cb0235531c21856c3df83bb800f7c3613f5a4c",
+  "package": "build/deliverables/ComicNotes-macOS-arm64-rc5-final.zip",
+  "packageSha256": "f09255d5d49e3089d188aeb853ca25a8f9d285a638f5b543442b534d6a250e9c",
   "executableSha256": "65fd240db868dbc90dab4db83cd3f21c51e000c5a25b7f35e60dfd5a385ffbea",
   "architecture": "arm64",
   "bundleId": "local.comicnotes.qa.VeneraNext",
   "signature": "verified-deep-strict-after-unpacking",
+  "releaseExternalProtocolRetest": "blocked-by-locked-mac",
   "flutterAnalyze": "clean",
   "interactiveBindingsTest": "9 passed",
   "externalProtocol": {
@@ -13,7 +14,8 @@
     "source": "Obsidian QA export Markdown",
     "document": "cb4cd8d8-1d28-4fd5-87f4-bb94ec2d0d26",
     "annotation": "202bd3fd-f669-411f-93ad-24692fb37da8",
-    "result": "QA-Image-Spine page 1/3 with target selection and EPUB image spine native crop prompt"
+    "result": "QA-Image-Spine page 1/3 with target selection and EPUB image spine native crop prompt",
+    "build": "repaired Debug QA app; rc5 Release retest blocked by Mac lock"
   },
   "pending": [
     "different-natural-size coordinate review/remapping",

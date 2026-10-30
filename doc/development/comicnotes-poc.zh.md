@@ -618,4 +618,10 @@ Mac 工作台的常驻批注列表支持点击取得焦点后按 ↑/↓ 选择�
 
 ## 不同自然尺寸页面坐标复核（2026-10-30）
 
-手工恢复允许旧页映射到不同自然尺寸的目标页，但提交前必须逐页勾选坐标复核。提交会更新目标页自然宽高，并在来源定位审计中记录旧/新尺寸及 `explicit-normalized-coordinate-review`；映射变更会清除该页复核状态。预览和恢复对话框均按目标页尺寸渲染选区。存储与 Dialog 专项测试通过，完整 `test/features/annotations` 共 196 项通过；尚需一次 Release 原生窗口操作确认。
+手工恢复允许旧页映射到不同自然尺寸的目标页，但提交前必须逐页勾选坐标复核。提交会更新目标页自然宽高，并在来源定位审计中记录旧/新尺寸及 `explicit-normalized-coordinate-review`；映射变更会清除该页复核状态。预览和恢复对话框均按目标页尺寸渲染选区。存储与 Dialog 专项测试通过，完整 `test/features/annotations` 共 196 项通过。
+
+在当前 arm64 Release 中，使用独立 QA 沙箱构造孤立旧批注与空白目标页：将 1000×1500 的 `QA-Image-Spine` 旧页映射到 `QA-Mixed-Pages` 第 2 页 1500×1000 横向页，实际勾选不同尺寸复核和逐页确认后提交成功。数据库核对显示批注仍保留原 UUID 与归一化矩形，目标页自然尺寸已更新，审计含旧/新尺寸及 `explicit-normalized-coordinate-review`。验收后已恢复 QA 沙箱原始数据库。
+
+### Release 候选 rc6（2026-10-30）
+
+基于提交 `40a9ac4` 的 arm64 Release 已构建、深层签名校验、解包校验和可执行文件哈希校验通过。候选包为 `build/deliverables/ComicNotes-macOS-arm64-rc6.zip`，SHA-256 为 `282647b299ed32091e376901ff30ae9534ca4bcbc3fe26cc1cf4d9de77574e0b`。包内 manifest 和说明记录不同尺寸恢复已通过，剩余完整初版门禁、Apple 公证和公开发行仍未完成。

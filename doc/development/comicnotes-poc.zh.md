@@ -624,4 +624,4 @@ Mac 工作台的常驻批注列表支持点击取得焦点后按 ↑/↓ 选择�
 
 ### Release 候选 rc6（2026-10-30）
 
-基于提交 `40a9ac4` 的 arm64 Release 已构建、深层签名校验、解包校验和可执行文件哈希校验通过。候选包为 `build/deliverables/ComicNotes-macOS-arm64-rc6.zip`，SHA-256 为 `282647b299ed32091e376901ff30ae9534ca4bcbc3fe26cc1cf4d9de77574e0b`。包内 manifest 和说明记录不同尺寸恢复已通过，剩余完整初版门禁、Apple 公证和公开发行仍未完成。
+基于提交 `40a9ac4` 的 arm64 Release 已构建、深层签名校验、解包校验和可执行文件哈希校验通过。候选包为 `build/deliverables/ComicNotes-macOS-arm64-rc6.zip`，SHA-256 为 `282647b299ed32091e376901ff30ae9534ca4bcbc3fe26cc1cf4d9de77574e0b`。包内 manifest 和说明记录不同尺寸恢复已通过；本轮原生探针仅验证第 30/22 条编辑后跨页定位，完整 30 条组合仍待完成。该包为 ad-hoc 签名，当前机器没有可用 Apple Developer 签名身份，Apple 公证和公开发行仍未完成。

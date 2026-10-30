@@ -7,6 +7,7 @@
   "architecture": "arm64",
   "bundleId": "local.comicnotes.qa.VeneraNext",
   "signature": "verified-deep-strict-after-unpacking",
+  "signingIdentity": "ad-hoc; no valid codesigning identity is installed",
   "differentNaturalSizeRecovery": {
     "status": "passed",
     "build": "current Release QA app",
@@ -22,8 +23,17 @@
     "source": "Obsidian QA export Markdown",
     "result": "QA-Image-Spine page 1/3 with target selection"
   },
+  "nativeCrossPageEditProbe": {
+    "status": "partial",
+    "verified": [
+      {"annotation": "Long book note 30 reviewed", "targetPage": 30},
+      {"annotation": "Long book note 22 reviewed", "targetPage": 20}
+    ],
+    "databaseRestored": true,
+    "result": "The complete 30-item edit-and-cross-page sequence remains pending; the probe did not change source code."
+  },
   "pending": [
-    "complete MVP acceptance",
+    "complete 30-item native edit-and-cross-page acceptance",
     "Apple notarization and public distribution"
   ]
 }

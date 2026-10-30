@@ -183,6 +183,77 @@ abstract class CBZ {
     }
   });
 
+  static Future<Map<String, Map<String, Object?>>> _sevenZipSourceLocators(
+    String archivePath,
+    String workspacePath,
+    List<String> selectedEntries,
+  ) => Isolate.run(() async {
+    final sourceArchive = SZArchive.open(archivePath);
+    Directory? staging;
+    try {
+      final byPath = <String, List<int>>{};
+      final names = <int, String>{};
+      for (var index = 0; index < sourceArchive.numFiles; index++) {
+        final entry = sourceArchive.getFile(index);
+        if (entry.isDirectory) continue;
+        final normalized = _normalizeZipEntryName(
+          entry.name,
+        )?.replaceAll('\\', '/');
+        if (normalized == null) continue;
+        names[index] = entry.name;
+        byPath.putIfAbsent(normalized, () => []).add(index);
+      }
+      staging = await Directory.systemTemp.createTemp('comicnotes-7z-entry-');
+      final result = <String, Map<String, Object?>>{};
+      for (final entry in selectedEntries) {
+        if (!ComicSourceProvenance.validRelativePath(entry)) {
+          throw const FormatException('无效 7z 页面路径');
+        }
+        final candidates = byPath[entry] ?? const <int>[];
+        if (candidates.isEmpty) {
+          throw const FormatException('无法定位原始 7z 图片条目');
+        }
+        final fingerprint = await ComicSourceProvenance.fingerprint(
+          File(FilePath.join(workspacePath, entry)),
+        );
+        final size = fingerprint['size'] as int;
+        if (size > 256 * 1024 * 1024) {
+          throw const FormatException('7z 图片超过 256 MiB，无法安全确认来源');
+        }
+        final matches = <int>[];
+        for (final index in candidates) {
+          if (sourceArchive.getFile(index).size != size) continue;
+          final check = File(FilePath.join(staging.path, 'entry'));
+          sourceArchive.extractToFile(index, check.path);
+          if (await check.length() == size &&
+              (await ComicSourceProvenance.fingerprint(check))['sha256'] ==
+                  fingerprint['sha256']) {
+            matches.add(index);
+          }
+          await check.delete();
+        }
+        if (matches.isEmpty) {
+          throw const FormatException('解压图片与原始 7z 条目字节不匹配，未登记不可靠来源');
+        }
+        final selected = matches.first;
+        result[entry] = {
+          'archiveEntryIndex': selected,
+          'archiveEntryOccurrence': candidates.indexOf(selected),
+          'archiveEntryCount': candidates.length,
+          'archiveEntryName': names[selected],
+          'archiveEntryResolution': candidates.length == 1
+              ? 'uniquePath'
+              : 'contentMatched',
+          if (candidates.length > 1) 'matchingEntryIndices': matches,
+        };
+      }
+      return result;
+    } finally {
+      sourceArchive.dispose();
+      await staging?.delete(recursive: true);
+    }
+  });
+
   static String? _normalizeZipEntryName(String name) {
     final decodedName = _decodeLegacyZipName(name);
     final normalized = decodedName.replaceAll('\\', '/');
@@ -327,8 +398,22 @@ abstract class CBZ {
             (chapter) => files.sublist(chapter.start - 1, chapter.end),
           )
         : files;
-    final zipLocators = isZip
+    final fileType = source == null ? null : await checkType(file);
+    final archiveLocators = isZip
         ? await _zipSourceLocators(
+            file.path,
+            workspace.path,
+            sourcePages
+                .map(
+                  (src) => path
+                      .relative(src.path, from: workspace.path)
+                      .replaceAll('\\', '/'),
+                )
+                .toSet()
+                .toList(),
+          )
+        : fileType?.mime == 'application/x-7z-compressed'
+        ? await _sevenZipSourceLocators(
             file.path,
             workspace.path,
             sourcePages
@@ -368,7 +453,7 @@ abstract class CBZ {
         workspace: workspace,
         destination: dest,
         locator:
-            zipLocators?[path
+            archiveLocators?[path
                 .relative(src.path, from: workspace.path)
                 .replaceAll('\\', '/')] ??
             const {},

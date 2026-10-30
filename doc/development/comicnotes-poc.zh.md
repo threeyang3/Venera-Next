@@ -6,7 +6,7 @@
 
 - 上游：`https://github.com/CyrilPeng/Venera-Next`。
 - 标签：`v1.18.1`，提交 `087147a7810039398f4eed3bcc794b576f92c46b`；标签对象 SHA 与提交 SHA 不同。
-- 本地分支：`feat/annotation-poc`；未建立远程 Fork、未推送或修改上游。
+- 本地分支：`feat/annotation-poc`；已推送至 `https://github.com/threeyang3/Venera-Next/tree/feat/annotation-poc`，未修改上游仓库。
 - Flutter `3.41.4`，框架提交 `ff37bef603469fb030f2b72995ab929ccfc227f0`；Dart `3.11.1`。
 - 当前持久 SDK：`/Users/threeyang/.local/share/mangareader-sdk/flutter`，依赖缓存使用标准 `~/.pub-cache`。原临时 SDK 已被清理，本轮已重新下载并校验官方 SHA-256。
 - 当前 Xcode `27.1`（`27A9275`）、Apple Swift `6.4`、CocoaPods `1.17.0`；Rust `1.92.0` 用于项目，stable `1.99.1` 用于旧版原生插件构建器，两套均有 arm64/x64 Mac 目标。

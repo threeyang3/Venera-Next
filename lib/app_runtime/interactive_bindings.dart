@@ -8,6 +8,7 @@ class InteractiveBindings {
   InteractiveBindings({
     required this.android,
     required this.windows,
+    this.macos = false,
     required this.links,
     required this.shares,
     required this.heartbeat,
@@ -19,6 +20,7 @@ class InteractiveBindings {
   });
 
   final bool android;
+  final bool macos;
   final bool windows;
   final EventSubscription<Uri> Function() links;
   final EventSubscription<Object?> Function() shares;
@@ -62,8 +64,12 @@ class InteractiveBindings {
       placement?.start();
       if (android) {
         startDownloads?.call();
+      }
+      if (android || macos) {
         _links = links();
         _links!.start();
+      }
+      if (android) {
         _shares = shares();
         _shares!.start();
       }

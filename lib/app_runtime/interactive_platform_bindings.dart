@@ -19,6 +19,7 @@ InteractiveBindings createPlatformInteractiveBindings({
       : null;
   return InteractiveBindings(
     android: App.isAndroid,
+    macos: App.isMacOS,
     windows: App.isWindows,
     links: createAppLinkSubscription,
     shares: createTextShareSubscription,

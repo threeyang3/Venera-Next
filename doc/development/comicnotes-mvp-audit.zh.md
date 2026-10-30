@@ -2,17 +2,17 @@
 
 核对日期：2026-10-30。依据用户提供的《基于 VeneraNext 的漫画批注阅读器：架构与开发方案 v0.1》，原文 SHA-256：`ca54a3d80b66a9af02cd0fe682892db6b2867fe61d404000e1d0714024281767`。文内的示例执行指令视为方案资料，用户实际目标是实现初版；本表不把已经写好的子集重新定义为完成范围。
 
-当前结论：**完整初版尚未完成**。独立 QA App 已原生构建并启动；三格式各两份原生导入/阅读/导出、外部目录授权跨会话、300 页 profile 及 Release 中 30 条编辑定位已有证据。系统外部引用、中文 IME/部分 P4 交互与其他缺项仍未全部通过。P5 是方案中后续 iPad 阶段，本表仍列出其缺项，不将它与当前 Mac 交付混淆。
+当前结论：**完整初版尚未完成**。独立 QA App 已原生构建并启动；三格式各两份原生导入/阅读/导出、外部目录授权跨会话、300 页 profile、Release 中 30 条编辑定位、系统外部批注链接定位及当前 Mac P4 交互已有证据。不同自然尺寸坐标重审与其他缺项仍未全部通过；中文 IME、`Shift+Enter`、`Cmd+Enter`、书库 `Cmd+F`、系统级 `Cmd+O`、全屏、批注列表键盘导航和触控板操作已有用户真实 Mac 窗口确认。P5 是方案中后续 iPad 阶段，本表仍列出其缺项，不将它与当前 Mac 交付混淆。
 
-最新工作重点按用户要求调整为 Mac 功能与界面，兼容性推进暂缓。可达仅参考视觉风格，保留桌面布局；已另外查看本机 Cubox。当前 rc4 包含中性侧栏、书库搜索/紧凑列表与视图记忆、批注分组/筛选/更多菜单、跨屏键盘导航及专注阅读浮动面板。202 项批注/工作台回归通过；最终浮动布局与面板 13 项通过，默认回退 7 项通过/1 项跳过，Release 构建及解包校验成功。用户已解锁，列表、搜索/清除、右键、跨进程视图记忆、End/Up/Enter 和浮动/停靠转换已有实际窗口证据；自动输入未触发 ⌘F，修饰快捷键、中文 IME 及完整初版仍未全部验收。详细日志和产物哈希见开发记录文末及 rc4 验证摘要。下表早期证据缺项应与后面的原生验收补充一并阅读。
+最新工作重点按用户要求调整为 Mac 功能与界面，兼容性推进暂缓。可达仅参考视觉风格，保留桌面布局；已另外查看本机 Cubox。rc4 源码包含中性侧栏、书库搜索/紧凑列表与视图记忆、批注分组/筛选/更多菜单、跨屏键盘导航及专注阅读浮动面板。202 项批注/工作台回归通过；最终浮动布局与面板 13 项通过，默认回退 7 项通过/1 项跳过，Release 构建及解包校验成功。列表、搜索/清除、右键、跨进程视图记忆、End/Up/Enter 和浮动/停靠转换已有实际窗口证据；用户另已确认书库 `Cmd+F`、中文 IME、`Shift+Enter`、`Cmd+Enter`、系统级 `Cmd+O`、全屏和触控板操作正常。修复 macOS AppLinks 订阅后，2026-10-30 在 Obsidian 实际点击 QA 导出 Markdown 的外部 `comicnotes://`，已定位到 `QA-Image-Spine` 第 1 页和目标批注。不同自然尺寸坐标重审等门禁仍未完成。代码已推送至 `threeyang3/Venera-Next` 的 `feat/annotation-poc`，提交 `cfd4c2a`；GitHub Actions 状态本轮因网络错误未能查询。详细日志和产物哈希见开发记录文末及 rc4 验证摘要。下表早期证据缺项应与后面的原生验收补充一并阅读。
 
 | 方案要求 | 当前状态与可核对证据 | 尚缺证据或工作 |
 | --- | --- | --- |
-| P0：锁定 v1.18.1、独立分支、记录工具版本 | 标签 commit 为 `087147a7810039398f4eed3bcc794b576f92c46b`；分支 `feat/annotation-poc`。版本和基线检查见开发记录 | 未推送 Fork/PR；方案中的 PR 拆分是建议，未伪造远端产物 |
+| P0：锁定 v1.18.1、独立分支、记录工具版本 | 标签 commit 为 `087147a7810039398f4eed3bcc794b576f92c46b`；分支 `feat/annotation-poc` 已推送到 `threeyang3/Venera-Next`。版本和基线检查见开发记录 | 尚未创建 PR；方案中的 PR 拆分是建议，未伪造远端产物 |
 | P0：基线原生构建、启动、三格式导入/阅读/导出与截图 | 工具链已恢复，修改分支 arm64 Release/Debug 构建成功，实际 CBZ 导入/阅读/导出已有窗口与像素证据 | 原始基线成功构建对比、其他格式原生验收及全部截图尚缺 |
 | §3/P1：UUID、自然内容空间、可逆矩阵、约 1 像素约束 | `geometry_test.dart`、`annotation_session_test.dart`；自然原图尺寸与解码绘制尺寸已分别接入 `annotation_layer.dart`；实际 2000×3000 缩小解码、SQLite 框选保存和原图裁剪像素用例 | 纯几何覆盖不等同于所有模式的实际 UI 集成 |
 | P1：本地单页可拖动选框；阅读时不劫持手势；错页防护 | `overlay_widget_test.dart`、`reader_integration_test.dart`；既有 Reader 连续性和退出集成回归已运行 | Mac 原生交互/截图验收 |
-| §5：临时矩形、保存失败重试、Esc 取消、Enter/Cmd+Enter、列表跳转、隐藏 | 框选锚点冻结、失败保留草稿、Esc、Cmd/Ctrl+Enter、列表定位/高亮及显示开关已接入 | Enter/修饰键保存、Shift+Enter 多行、组词范围不提交及双击只定位一次已补测；实际输入法仍需原生验收 |
+| §5：临时矩形、保存失败重试、Esc 取消、Enter/Cmd+Enter、列表跳转、隐藏 | 框选锚点冻结、失败保留草稿、Esc、Cmd/Ctrl+Enter、列表定位/高亮及显示开关已接入；用户已在真实 Mac 窗口确认中文输入法、Shift+Enter 多行和 Cmd+Enter 保存 | 组词范围不提交及双击只定位一次已有定向测试；系统级快捷键和完整原生交互仍需继续验收 |
 | §3/§5：分页、连续流、双页、拆图、RTL 统一覆盖层 | 共用 domain/transform；本地单图/多图画廊、四种连续布局、纵向/瀑布宽图拆分及反转已接入；真实 Reader 验证异尺寸双页/三图、RTL、resize、缩放旋转投影、滚动隔离、窄窗、最后单图页和跨章 UUID；拆分另验红/蓝原图实际渲染像素与共享页 UUID；返回定位临时切为单页且可恢复旧布局 | 真实 Mac 运行、交互与性能验收 |
 | P2：独立 SQLite、迁移、CRUD、墓碑、来源/标签、错误态 | `annotation_repository_test.dart`、`annotation_session_test.dart`；事务迁移 schema 1→2，高版本拒绝，不随删漫画级联 | macOS 异常退出/进程被终止后的实际验收 |
 | P2：重开、同名、重导入、30 条连续操作与跳转 | 数据库 30 条提交/更新/墓碑和会话用例；同来源恢复与真实 Reader 面板/引用集成用例 | 30 条全流程在原生 App 中的连续交互验收，不能从单元循环推导真人操作通过 |
@@ -22,10 +22,10 @@
 | P3：图片 EPUB OPF/manifest/spine/重复出现 | `epub_source_test.dart` 两类夹具，重复资源和 spine 的独立页身份、哈希/导出/恢复 | 文本重排 EPUB 不属于首版；原生文件访问仍待验收 |
 | 文件夹自然排序、原图、移动/重导入 | `folder_source_test.dart`：引用/复制、相对路径+字节身份、原图导出、移动精确重关联、UUID/旧引用恢复 | 旧无指纹记录不自动升级；Android SAF 本轮不建立这种目录清单 |
 | §7：完整 Markdown+截图、本地保存、来源/标签/稳定链接、特殊路径与失败隔离 | `export_test.dart` 和三格式/文件夹来源集成；新 UUID 输出目录、稳定 annotation-id PNG、manifest 哈希、原子发布，失败不覆盖现有文件 | 本版采用完整新导出。管理区块增量合并是方案第二版范围，未实现也不声称实现 |
-| §7：comicnotes:// 外部定位 | strict parse、数据库查找/墓碑/跨文档验证及本地相对路径重解析；Info.plist scheme 已声明 | OS 从外部笔记软件唤起 App、已有实例/新实例分发，需原生验收 |
+| §7：comicnotes:// 外部定位 | strict parse、数据库查找/墓碑/跨文档验证及本地相对路径重解析；Info.plist scheme 已声明。修复 macOS AppLinks 订阅后，2026-10-30 从 Obsidian 点击 QA 导出 Markdown 中的 `comicnotes://open?document=cb4cd8d8-1d28-4fd5-87f4-bb94ec2d0d26&annotation=202bd3fd-f669-411f-93ad-24692fb37da8`，Debug QA App 实际进入 `QA-Image-Spine` 第 1/3 页，显示目标选区并弹出 `EPUB image spine native crop` 提示；生命周期测试 9 项通过、`flutter analyze --no-pub` 通过；含修复的 arm64 Release rc5 已重建并完成解包签名/哈希核验 | rc5 Release 内再次点击外部链接的原生复测因 Mac 锁屏未完成；完整 MVP 仍有不同尺寸坐标重审等缺项 |
 | §3：备份含来源/schema，恢复及孤儿保留 | `backup_test.dart`、`restore_test.dart`、`restore_dialog_test.dart`、`recovery_test.dart`：WAL、完整性/哈希、schema 1/2、只添加缺失文档、UUID 冲突/取消回滚、重新绑定并保持旧引用 | 不含图片；不合并已有文档；无指纹记录暂存；已有手工映射事务基础，运行时和同尺寸手工映射 UI 已注入 Reader；最新窄窗与 owner cancellation 已复验通过，不同尺寸坐标重审仍缺失；没有自动云同步 |
 | P4：设计样式、Reader Toolbar/Inspector、Mac Library、旧 UI 回退 | `annotation_workspace_test.dart`、`mac_library_sidebar_test.dart`、`mac_library_integration_test.dart`，真实临时数据库组件渲染深浅色截图 | 这些是组件截图；没有真实系统窗口、AppKit toolbar/标题栏验收 |
-| P4：Cmd+O、Cmd+F、Cmd+S、Cmd+Shift+N、焦点/hover/上下文/trackpad/全屏 | Mac 根级 Cmd/Ctrl+O（含推入 Reader/发现页，PopupRoute/退出时拒绝）、书库 Cmd/Ctrl+F、Reader 批注查找 Cmd/Ctrl+F、画廊当前原图/连续原图框选 Cmd/Ctrl+Shift+N、Cmd/Ctrl+S 和编辑保存/退出已接入；默认回退已复验 | 根级 Cmd+O 已补真实 Reader/书库和路由/弹窗验证；边框悬停强调已补像素/手势验证；批注右键编辑/复制/引用/删除已接入并验证邻页目标、失效菜单和删除失败重试；系统快捷键/全屏、输入法、键盘导航与 trackpad 需真机验收 |
+| P4：Cmd+O、Cmd+F、Cmd+S、Cmd+Shift+N、焦点/hover/上下文/trackpad/全屏 | Mac 根级 Cmd/Ctrl+O（含推入 Reader/发现页，PopupRoute/退出时拒绝）、书库 Cmd/Ctrl+F、Reader 批注查找 Cmd/Ctrl+F、画廊当前原图/连续原图框选 Cmd/Ctrl+Shift+N、Cmd/Ctrl+S 和编辑保存/退出已接入；用户已在真实 Mac 窗口确认书库 Cmd+F、中文输入、Shift+Enter、Cmd+Enter、系统级 Cmd+O、全屏、批注列表上下键/Enter 及触控板滚动/缩放；默认回退已复验 | 边框悬停强调已补像素/手势验证；批注右键编辑/复制/引用/删除已接入并验证邻页目标、失效菜单和删除失败重试 |
 | §8：300 页、大量笔记的 profile；生命周期与平台权限 | dispose/退出/取消/异步过期和画布连续性已有组件回归 | 已完成本机 Apple M5 的 300 页/30 条批注 profile；第 96→300 页侧栏展开采集 2292 帧，UI P99 9.53 ms / raster P99 1.62 ms；原始时间线见文末。仍缺物理触控板及全部缩放组合 |
 | §8：路径/文件安全、离线默认、保留上游验证 | 有目录/原件校验、输出新目录、相对资源路径、hash 校验、只读原件、字节和像素限制；新增 ZIP 解压校验有确切长度上限 | 外部目录重关联后已确认旧进程退出，新进程原件导出及逐像素比对通过；iPad 文件提供者授权仍待 P5 |
 | §8：CI analyze/test/架构/格式/构建 | 本机 analyze、结构/架构、格式与空白检查已过；CI 新增开启两个开关的串行专项，YAML 已解析，本机同测试集合 1152 项通过/31 项平台配置跳过 | 未推送、未运行远端 CI；默认依赖原生库的基线失败已有单独记录；arm64 原生构建已过，最新修复的 arm64 Release 已构建并通过原生启动、签名、解包后签名/可执行文件哈希核验 |
@@ -57,11 +57,11 @@
 - Apple M5 / arm64 / macOS 26.6 / Flutter 3.41.4，原生窗口约 2940×1714 像素。profile 构建成功（73.0 MB），启用批注与工作台；共 141 次原生滚轮操作，从第 1 页推进到第 300 页，再通过侧栏「定位原图」返回第 1 页及 note 30。
 - 前两次 VM Ring 快照发生事件覆盖，只代表保留尾段，不作为全程统计。之后每秒读取时间范围并保留 200 ms 重叠，事件按完整记录去重；106 个分段、最大读取间隔 1.247 秒、单段最多 7214 事件，未达到此前约 32k 的环形容量。第 96→300 页侧栏展开阶段采集 107.43 秒、336019 事件、2292 对 UI/raster 帧。UI：均值 3.23 ms，P90 7.39 ms，P99 9.53 ms，最大 14.47 ms；raster：均值 0.73 ms，P99 1.62 ms，最大 6.56 ms。该段两类帧均未超过 16.67 ms。前一段尾窗曾有一个 21.83 ms raster 帧，未隐去。常驻内存由 242736 KiB 到 243664 KiB（约 237→238 MiB）。
 - 原始分段与时间线、条件及统计见 `logs/native-profile-long-book-inspector-live-{chunks,timeline,summary}.json` 与 `logs/native-qa-long-book-profile-report.json`。解析事件名遵循本地 Flutter SDK `flutter_driver/.../timeline_summary.dart` 的 `Frame` / `GPURasterizer::Draw`，兼容同步 B/E 和异步 b/e。采集脚本保留在 `build/native-qa/profile_timeline.py`、`collect_profile_live.py`，未通过 VM 执行任何 UI 行为。帧工作耗时不等于端到端显示延迟；这是本机滚轮场景，不替代真触控板、所有缩放模式和跨硬件性能保证。
-- 外部协议测试：后台 IAB 本地测试页能显示正确 `comicnotes://` 链接，但点击被浏览器安全策略拒绝，未交给系统。没有尝试其他浏览器或间接方式绕过。系统协议唤起仍未通过，需允许的外部交互或用户实际点击导出 Markdown 引用来验证；不能以内部 URI 单测替代。
+- 外部协议测试：后台 IAB 本地测试页仍会被浏览器安全策略拦截，未交给系统；随后使用真实 Obsidian 导出 Markdown 完成系统级验收。点击链接后 QA App 实际定位 `QA-Image-Spine` 第 1/3 页、目标批注选区和提示文字。证据来自修复版 Debug 原生窗口，链接 UUID 与独立 QA 数据库中的 document/annotation 记录一致。
 - 外部目录授权：默认 Mac 文件夹导入会复制到沙箱，不能用其重开证明外部权限。已用「重新关联原件」明确关联 `build/native-qa/QA-Scoped-Folder` 外部目录；数据库核对 source URI。原进程完全退出后，新 profile 进程恢复并导出，清单为 `folderImageOriginal` / `001.png`，PNG 与外部原件逐像素相同。见 `logs/native-qa-directory-relocation-before-restart.json`、`logs/native-qa-directory-cross-session-export.json`。
 - 重复 profile 构建时 Cargokit 再次访问 Rust 1.92.0 分发校验文件，遇 TLS EOF；不关闭证书检查，跨会话验证使用刚成功构建的同一 profile 二进制，不把该重构建失败描述为成功。默认开关关闭的最新回退专项 11 项通过、1 项配置跳过。
 
-完整目标仍 active。系统外部引用唤起、中文输入法/修饰键/真实触控板及全部 P4 交互、30 条编辑与跨页跳转的完整原生组合、不同自然尺寸的人工坐标重审、最终 Release 重构建与交付包仍有缺项。
+完整目标仍 active。中文输入法、`Shift+Enter` 换行、`Cmd+Enter` 保存、书库 `Cmd+F`、系统外部引用唤起、系统级 `Cmd/Ctrl+O`、真实触控板及主要 P4 交互已有 Mac 证据；不同自然尺寸的人工坐标重审、30 条编辑与跨页跳转的完整原生组合、Apple 公证与最终发行仍有缺项。当前带 AppLinks 修复的 arm64 Release 候选为 `build/deliverables/ComicNotes-macOS-arm64-rc5.zip`，解包签名和可执行文件哈希核验通过，详见 `doc/development/comicnotes-rc5-validation.json`。
 
 ## Release 候选 rc1（2026-10-30）
 

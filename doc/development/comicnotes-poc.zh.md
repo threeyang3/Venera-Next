@@ -1,6 +1,6 @@
 # ComicNotes 初版开发与验收记录
 
-已接入区域批注、整页笔记、书签、独立 SQLite、全书批注面板与标签、跨章节原图定位、引用链接处理、Markdown 图文导出、CBZ/图片 EPUB 原图副本映射、文件夹逐页来源清单、PDF 原件直接裁剪和全部批注备份。**完整初版仍在实现中：同指纹原件路径关联与同来源重新导入恢复已接入；Mac 书库外壳已接入；备份恢复预览与缺失文档导入已接入；同自然尺寸旧页的手工逐页重映射已接入 Reader，窄窗/退出取消已复验，不同尺寸的坐标重审未完成；可回退的 Reader 工作台已接入；macOS 工具链已安装，正在修复 Xcode 27 兼容性并完成原生构建/启动/系统协议验收。**
+已接入区域批注、整页笔记、书签、独立 SQLite、全书批注面板与标签、跨章节原图定位、引用链接处理、Markdown 图文导出、CBZ/图片 EPUB 原图副本映射、文件夹逐页来源清单、PDF 原件直接裁剪和全部批注备份。**完整初版仍在实现中：同指纹原件路径关联与同来源重新导入恢复已接入；Mac 书库外壳和可回退的 Reader 工作台已接入；备份恢复预览与缺失文档导入已接入；同自然尺寸旧页的手工逐页重映射已接入 Reader，窄窗/退出取消已复验，不同尺寸的坐标重审未完成；macOS 原生工具链和独立 QA App 已可运行，三格式、外部目录跨会话、长篇 profile 和系统外部批注引用定位已有原生证据；完整交付仍受不同尺寸坐标重审及其他未完成门禁限制。**
 
 ## 基线和运行
 
@@ -40,7 +40,7 @@ bash tool/run_annotation_poc.sh
 
 **真实应用启用批注后，笔记提交到应用数据目录的独立 `annotations.db`。**重新打开同一漫画可恢复文档、页和批注 UUID；更新、删除在 SQL 提交成功后才改变内存。保存失败会重新打开保留文字的编辑器供重试，初始化失败会显示「批注暂不可用」，不会悄悄改成临时保存。
 
-不注入运行时服务的组件预览/测试仍使用内存会话，界面会明确标记「临时」「本轮阅读内有效」。`comicnotes://` 已接入应用路由，macOS Info.plist 已声明 scheme；系统从外部笔记软件唤起本 App 仍需原生构建后验证。新导入 PDF/EPUB 的原文件定位、同指纹原件路径关联和重新导入恢复已接入；无指纹旧导入已有同自然尺寸的明确逐页确认映射；不同尺寸的坐标重审尚未实现。
+不注入运行时服务的组件预览/测试仍使用内存会话，界面会明确标记「临时」「本轮阅读内有效」。`comicnotes://` 已接入应用路由，macOS Info.plist 已声明 scheme；2026-10-30 使用 QA 导出 Markdown 在 Obsidian 点击系统链接，已实际定位 `QA-Image-Spine` 第 1 页及目标批注。新导入 PDF/EPUB 的原文件定位、同指纹原件路径关联和重新导入恢复已接入；无指纹旧导入已有同自然尺寸的明确逐页确认映射；不同尺寸的坐标重审尚未实现。
 
 Mac 工作台支持根级 Cmd/Ctrl+O 在书库、发现或推入的 Reader 页面打开现有导入窗口；弹窗/右键菜单期间不叠加导入窗口，退出禁止状态不打开。书库支持 Cmd/Ctrl+F 查找本地漫画。启用批注的本地 Reader 支持 Cmd/Ctrl+F 查找批注，Cmd/Ctrl+Shift+N 在已加载的画廊当前原图或连续原图进入框选；编辑/列表输入期间不会触发新框选或翻页。自定义图片处理模式仍受前述范围限制。
 
@@ -597,3 +597,21 @@ Mac 工作台的常驻批注列表支持点击取得焦点后按 ↑/↓ 选择�
 另按方案 §5.1 补齐专注阅读的浮动 Inspector：`showInspector` 在专注模式中不退出专注，也不减小画布。关闭浮动面板仍保持专注；显示工作台可返回停靠布局。原生预览发现额外入口与既有工具条重叠，最终去掉重复按钮，复用原工具条并增加面板顶部间距；最终 Release 已实际从原入口打开、关闭并返回停靠。组件验证画布尺寸、MediaQuery、内容 State 身份及 viewport 变化通知，最终工作台/面板 13 项测试通过，静态检查无问题。
 
 `build/deliverables/ComicNotes-macOS-arm64-rc4.zip` 为当前本机候选，23,937,430 字节，SHA-256 `03a1b830003eef543fb2ad0511c2e5db617a37bad0988eda2cccf5686b9d0ec1`。解包后架构、可执行哈希及严格深层签名校验通过。可提交的摘要为 `doc/development/comicnotes-rc4-validation.json`；本地原始日志与构建目录被忽略。不同自然尺寸重审、外部协议、中文 IME/修饰键/实体触控板等剩余项继续列出，完整目标不标记完成。用户随后要求先更新到 GitHub，本轮接下来进行源码提交与独立 Fork 分支推送。
+
+### 原生快捷键与中文输入人工复验（2026-10-30）
+
+在提交 `cfd4c2a` 的测试 App 中，用户实际按下 `Cmd+F` 后确认书库搜索框取得焦点并完成筛选；自动化输入未能触发该组合键，因此以人工操作结果为准。随后在测试漫画的整页笔记编辑框中使用中文输入法输入「中文输入测试」，按 `Shift+Enter` 换行后输入「第二行」，最后按 `Cmd+Enter` 保存；用户确认选字、换行和保存均正常，内容已持久化。
+
+这两项现在可以从“待确认”移出。随后用户在同一 QA App 中确认系统级 `Cmd+O`、全屏切换、批注列表上下键/Enter 定位，以及触控板滚动与缩放均正常。当前 Mac P4 交互的人工确认项已覆盖；当时外部 `comicnotes://` 系统唤起和最终 Release 交付仍未完成，后续缺陷修复与验收见下文。
+
+### 外部批注链接唤起缺陷（2026-10-30）
+
+用户从 Finder 打开 `build/native-qa/QA-Image-Spine-5ec36b72-4022-4035-9209-a6c9dbace0ac/QA-Image-Spine.md` 并点击「返回漫画批注」后，macOS 成功唤起 QA App，但没有定位批注。只读查询独立 QA 沙箱中的 `annotations.db` 确认链接目标 document UUID 与 annotation UUID 均存在，且对应 `QA-Image-Spine` 第 1 张原图，排除旧链接目标不存在。
+
+根因是 `InteractiveBindings.start()` 仅在 Android 创建 AppLinks URI stream 订阅；macOS Info.plist 虽已声明 `comicnotes` scheme、`app_links` 插件也已接收系统 URL，但 Dart 端没有监听，因此活跃实例事件无人处理。现新增独立 macOS 平台标志，在 macOS 订阅链接流，同时保持 Android 专用文本分享和下载行为不变；新增生命周期测试检查 macOS 会订阅/排空 URI 流且不会启动分享订阅。
+
+修复已通过 `test/app_runtime/interactive_bindings_test.dart`（9 项）、`flutter analyze --no-pub`，以及 app-runtime/routing 回归（235 项通过、37 项平台/配置跳过）。修复版 macOS Debug 已重建并签名校验。2026-10-30 从 Obsidian 打开上述 QA Markdown 并点击 `comicnotes://open?document=cb4cd8d8-1d28-4fd5-87f4-bb94ec2d0d26&annotation=202bd3fd-f669-411f-93ad-24692fb37da8` 后，Debug QA App 实际进入 `QA-Image-Spine` 第 1/3 页，显示目标蓝色选区和 `EPUB image spine native crop` 提示。外部协议 Debug 门禁通过。含修复的 Release rc5 已构建并完成解包签名/哈希核验；因随后 Mac 锁屏，未完成 rc5 进程内的同一链接复测。
+
+## Release 候选 rc5（2026-10-30）
+
+为包含 macOS AppLinks 订阅修复的当前源码重新构建 arm64 Release。构建日志为 `logs/native-app-links-final-release-build.log`；`flutter analyze --no-pub` 无问题，生命周期测试 9 项全部通过。新包 `build/deliverables/ComicNotes-macOS-arm64-rc5.zip` 的 SHA-256 为 `dd8918a9160f19c540e0b65fb2cb0235531c21856c3df83bb800f7c3613f5a4c`；解包后 `codesign --verify --deep --strict` 通过，包内可执行文件为 arm64，SHA-256 为 `65fd240db868dbc90dab4db83cd3f21c51e000c5a25b7f35e60dfd5a385ffbea`。包内说明和 `candidate-manifest.json` 已记录外部 `comicnotes://` 定位通过，以及不同自然尺寸坐标重审等剩余限制；rc5 仍是本机候选，不是完整初版结项。

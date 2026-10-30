@@ -90,6 +90,44 @@ void main() {
     },
   );
 
+  test('macOS attaches URI links without Android share bindings', () async {
+    var linkListens = 0;
+    var shareListens = 0;
+    final received = <Uri>[];
+    final links = StreamController<Uri>.broadcast(
+      onListen: () => linkListens++,
+      onCancel: () => linkListens--,
+    );
+    final shares = StreamController<Object?>.broadcast(
+      onListen: () => shareListens++,
+      onCancel: () => shareListens--,
+    );
+    final runtime = InteractiveBindings(
+      android: false,
+      macos: true,
+      windows: false,
+      links: () => EventSubscription<Uri>(
+        events: links.stream,
+        handle: (uri, _) async => received.add(uri),
+        onError: (error, stack) => fail('$error'),
+      ),
+      shares: () => bind(shares.stream),
+      heartbeat: () async {},
+    );
+    runtime.start();
+    expect(linkListens, 1);
+    expect(shareListens, 0);
+    final uri = Uri.parse('comicnotes://open?document=doc&annotation=note');
+    links.add(uri);
+    await pumpEventQueue();
+    expect(received, [uri]);
+    await runtime.dispose();
+    expect(linkListens, 0);
+    expect(shareListens, 0);
+    await links.close();
+    await shares.close();
+  });
+
   test(
     'disposal joins every accepted heartbeat and reports late failures',
     () async {

@@ -29,8 +29,9 @@
       {"annotation": "Long book note 30 reviewed", "targetPage": 30},
       {"annotation": "Long book note 22 reviewed", "targetPage": 20}
     ],
+    "latestProbe": "logs/native-qa-rc6-cross-page-probe.json",
     "databaseRestored": true,
-    "result": "The complete 30-item edit-and-cross-page sequence remains pending; the probe did not change source code."
+    "result": "A representative Release probe started on page 20 and located Long book note 30 reviewed on page 30 with the selection visible; the complete 30-item edit-and-cross-page sequence remains pending."
   },
   "pending": [
     "complete 30-item native edit-and-cross-page acceptance",

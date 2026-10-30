@@ -1,0 +1,15 @@
+{
+  "build": "build/deliverables/ComicNotes-macOS-arm64-rc6/VeneraNext.app",
+  "date": "2026-10-30",
+  "source": "QA-300-Pages",
+  "probe": {
+    "fromPage": 20,
+    "annotation": "Long book note 30 reviewed",
+    "action": "全书批注面板 -> 定位原图",
+    "targetPage": 30,
+    "selectionVisible": true,
+    "toastVisible": true
+  },
+  "databaseRestored": true,
+  "result": "representative edit-and-cross-page locate probe passed; full 30-item native sequence remains pending"
+}

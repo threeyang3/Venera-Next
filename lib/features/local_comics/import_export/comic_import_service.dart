@@ -1,3 +1,6 @@
+import 'package:venera_next/foundation/app.dart';
+import 'package:venera_next/foundation/folder_source_provenance.dart';
+import 'package:venera_next/foundation/comic_source_provenance.dart';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -98,6 +101,7 @@ enum ComicImportIssueKind {
   registrationFailed,
   archiveFailed,
   copyRecoveryRequired,
+  annotationSourceFailed,
 }
 
 class ComicImportIssue {
@@ -712,10 +716,57 @@ class ComicImportOperation {
       for (final entry in comics.entries) {
         for (final comic in entry.value) {
           ownedRecords[comic]?.checkUnchanged();
+          ComicSourceProvenance? source;
+          if (const bool.fromEnvironment('COMICNOTES_POC') &&
+              comic.comicType == ComicType.local &&
+              Directory(comic.baseDir) is! AndroidDirectory &&
+              !File(
+                path.join(comic.baseDir, ComicSourceProvenance.filename),
+              ).existsSync()) {
+            try {
+              source = await captureComicFolderSource(Directory(comic.baseDir));
+            } catch (error, stack) {
+              issues.add(
+                ComicImportIssue(
+                  ComicImportIssueKind.annotationSourceFailed,
+                  error,
+                  stack,
+                ),
+              );
+            }
+          }
           await AppDataOperations.instance.access(
             () => _registerComic(comic, folder: entry.key),
           );
           count++;
+          if (source != null) {
+            try {
+              final registered = _manager
+                  .getComics(LocalSortType.name)
+                  .where(
+                    (item) =>
+                        item.comicType == comic.comicType &&
+                        item.directory == comic.directory &&
+                        item.createdAt.millisecondsSinceEpoch ==
+                            comic.createdAt.millisecondsSinceEpoch,
+                  )
+                  .single;
+              await writeFolderSourceReceipt(
+                dataPath: App.dataPath,
+                libraryKey:
+                    'local:${registered.id}:${registered.createdAt.millisecondsSinceEpoch}',
+                receipt: source,
+              );
+            } catch (error, stack) {
+              issues.add(
+                ComicImportIssue(
+                  ComicImportIssueKind.annotationSourceFailed,
+                  error,
+                  stack,
+                ),
+              );
+            }
+          }
           try {
             final record = ownedRecords[comic];
             if (record != null) {

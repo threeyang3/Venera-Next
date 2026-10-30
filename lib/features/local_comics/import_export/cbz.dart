@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:isolate';
+import 'package:path/path.dart' as path;
 import 'package:archive/archive_io.dart' as archive_io;
 import 'package:enough_convert/enough_convert.dart';
 import 'package:flutter_7zip/flutter_7zip.dart';
@@ -13,6 +15,7 @@ import 'package:venera_next/foundation/file_system.dart';
 import 'package:zip_flutter/zip_flutter.dart';
 import '../local_storage_guard.dart';
 import 'comic_import_output.dart';
+import 'package:venera_next/foundation/comic_source_provenance.dart';
 
 /// Comic Book Archive. Currently supports CBZ, ZIP and 7Z formats.
 abstract class CBZ {
@@ -97,6 +100,89 @@ abstract class CBZ {
     }
   }
 
+  // Primitive paths cross the worker boundary, never an import operation or
+  // reader handle. Read the central directory once, preserving duplicate entries
+  // that Archive's filename map would otherwise collapse. Verify original bytes
+  // for every selected resource, including paths affected by filesystem aliases.
+  static Future<Map<String, Map<String, Object?>>> _zipSourceLocators(
+    String archivePath,
+    String workspacePath,
+    List<String> selectedEntries,
+  ) => Isolate.run(() async {
+    final input = archive_io.InputFileStream(archivePath);
+    Directory? staging;
+    try {
+      final directory = archive_io.ZipDirectory()..read(input);
+      final byPath = <String, List<int>>{};
+      for (var index = 0; index < directory.fileHeaders.length; index++) {
+        final name = directory.fileHeaders[index].file!.filename;
+        if (name.endsWith('/') || name.endsWith('\\')) continue;
+        final normalized = _normalizeZipEntryName(name)?.replaceAll('\\', '/');
+        if (normalized != null) {
+          byPath.putIfAbsent(normalized, () => []).add(index);
+        }
+      }
+      staging = await Directory.systemTemp.createTemp('comicnotes-zip-entry-');
+      final result = <String, Map<String, Object?>>{};
+      for (final entry in selectedEntries) {
+        if (!ComicSourceProvenance.validRelativePath(entry)) {
+          throw const FormatException('无效 ZIP 页面路径');
+        }
+        final candidates = byPath[entry] ?? const <int>[];
+        if (candidates.isEmpty) throw const FormatException('无法定位原始 ZIP 图片条目');
+        final fingerprint = await ComicSourceProvenance.fingerprint(
+          File(FilePath.join(workspacePath, entry)),
+        );
+        final size = fingerprint['size'] as int;
+        if (size > 256 * 1024 * 1024) {
+          throw const FormatException('ZIP 图片超过 256 MiB，无法安全确认来源');
+        }
+        final matches = <int>[];
+        for (final index in candidates) {
+          final header = directory.fileHeaders[index];
+          if (_normalizeZipEntryName(header.filename)?.replaceAll('\\', '/') !=
+              entry) {
+            throw const FormatException('ZIP 本地与中央目录的条目路径不一致');
+          }
+          if (header.uncompressedSize != size) continue;
+          final check = File(FilePath.join(staging.path, 'entry'));
+          final output = _BoundedZipEntryOutput(check.path, size);
+          try {
+            header.file!.decompress(output);
+          } finally {
+            output.closeSync();
+          }
+          if (await check.length() == size &&
+              (await ComicSourceProvenance.fingerprint(check))['sha256'] ==
+                  fingerprint['sha256']) {
+            matches.add(index);
+          }
+          await check.delete();
+        }
+        if (matches.isEmpty) {
+          throw const FormatException('解压图片与原始 ZIP 条目字节不匹配，未登记不可靠来源');
+        }
+        // Equal-byte duplicates are interchangeable resources. Select the first
+        // verified one deterministically and retain every equivalent index.
+        final selected = matches.first;
+        result[entry] = {
+          'archiveEntryIndex': selected,
+          'archiveEntryOccurrence': candidates.indexOf(selected),
+          'archiveEntryCount': candidates.length,
+          'archiveEntryName': directory.fileHeaders[selected].filename,
+          'archiveEntryResolution': candidates.length == 1
+              ? 'uniquePath'
+              : 'contentMatched',
+          if (candidates.length > 1) 'matchingEntryIndices': matches,
+        };
+      }
+      return result;
+    } finally {
+      await input.close();
+      await staging?.delete(recursive: true);
+    }
+  });
+
   static String? _normalizeZipEntryName(String name) {
     final decodedName = _decodeLegacyZipName(name);
     final normalized = decodedName.replaceAll('\\', '/');
@@ -180,8 +266,15 @@ abstract class CBZ {
   }) async {
     final workspace = Directory(App.cachePath).createTempSync('cbz_import_');
     try {
+      final source = const bool.fromEnvironment('COMICNOTES_POC')
+          ? <String, Object?>{
+              'kind': 'archive',
+              'uri': file.absolute.uri.toString(),
+              ...await ComicSourceProvenance.fingerprint(file),
+            }
+          : null;
       await extractArchive(file, workspace);
-      return await _importExtracted(file, workspace, registerComic);
+      return await _importExtracted(file, workspace, registerComic, source);
     } finally {
       await workspace.deleteIgnoreError(recursive: true);
     }
@@ -191,6 +284,7 @@ abstract class CBZ {
     File file,
     Directory workspace,
     Future<void> Function(LocalComic comic)? registerComic,
+    Map<String, Object?>? source,
   ) async {
     final layout = ComicFileSystemLayout.inspect(
       workspace,
@@ -223,6 +317,30 @@ abstract class CBZ {
       throw Exception('No images found in the archive');
     }
     Map<String, String>? cpMap;
+    final isZip =
+        source != null && (await checkType(file)).mime == 'application/zip';
+    final sourcePages =
+        metaData.chapters == null && layout.useChapterDirectories
+        ? chapterDirectories.expand((chapter) => chapter.pages)
+        : metaData.chapters != null
+        ? metaData.chapters!.expand(
+            (chapter) => files.sublist(chapter.start - 1, chapter.end),
+          )
+        : files;
+    final zipLocators = isZip
+        ? await _zipSourceLocators(
+            file.path,
+            workspace.path,
+            sourcePages
+                .map(
+                  (src) => path
+                      .relative(src.path, from: workspace.path)
+                      .replaceAll('\\', '/'),
+                )
+                .toSet()
+                .toList(),
+          )
+        : null;
     var dest = Directory(
       FilePath.join(
         LocalManager().path,
@@ -239,6 +357,24 @@ abstract class CBZ {
     }
     dest.createSync();
     final output = ComicImportOutput(dest);
+    final provenance = source == null
+        ? null
+        : ComicSourceProvenance(source: source, pages: {});
+    Future<void> copyPage(File src, File dst) async {
+      await src.copyMem(dst.path);
+      await provenance?.record(
+        extracted: src,
+        imported: dst,
+        workspace: workspace,
+        destination: dest,
+        locator:
+            zipLocators?[path
+                .relative(src.path, from: workspace.path)
+                .replaceAll('\\', '/')] ??
+            const {},
+      );
+    }
+
     try {
       File coverFile;
       if (metaData.chapters == null && layout.useChapterDirectories) {
@@ -261,7 +397,7 @@ abstract class CBZ {
                 '${j + 1}.${src.path.split('.').last}',
               ),
             );
-            await src.copyMem(dst.path);
+            await copyPage(src, dst);
           }
         }
       } else {
@@ -278,7 +414,7 @@ abstract class CBZ {
             var dst = File(
               FilePath.join(dest.path, '${i + 1}.${src.path.split('.').last}'),
             );
-            await src.copyMem(dst.path);
+            await copyPage(src, dst);
           }
         } else {
           dest.createSync();
@@ -303,7 +439,7 @@ abstract class CBZ {
                   '${j + 1}.${src.path.split('.').last}',
                 ),
               );
-              await src.copyMem(dst.path);
+              await copyPage(src, dst);
             }
             i++;
           }
@@ -321,6 +457,16 @@ abstract class CBZ {
         cover: 'cover.${coverFile.extension}',
         createdAt: DateTime.now(),
       );
+      if (provenance != null) {
+        final after = await ComicSourceProvenance.fingerprint(file);
+        if (after['sha256'] != source!['sha256'] ||
+            after['size'] != source['size']) {
+          throw const FileSystemException(
+            'Source archive changed during import',
+          );
+        }
+        await provenance.write(dest);
+      }
       await output.register(comic, registerComic);
       return comic;
     } catch (error, stack) {
@@ -565,4 +711,37 @@ class _ComicInfoTags {
     required this.genres,
     required this.tags,
   });
+}
+
+/// Decompression must not exceed the already extracted page's exact length.
+class _BoundedZipEntryOutput extends archive_io.OutputFileStream {
+  _BoundedZipEntryOutput(String path, this.limit)
+    : super.withFileHandle(
+        archive_io.FileHandle(path, mode: archive_io.FileAccess.write),
+        bufferSize: 64 * 1024,
+      );
+  final int limit;
+  void _check(int count) {
+    if (count < 0 || length + count > limit) {
+      throw const FormatException('ZIP 条目解压数据超过已校验页面长度');
+    }
+  }
+
+  @override
+  void writeByte(int value) {
+    _check(1);
+    super.writeByte(value);
+  }
+
+  @override
+  void writeBytes(List<int> bytes, {int? length}) {
+    _check(length ?? bytes.length);
+    super.writeBytes(bytes, length: length);
+  }
+
+  @override
+  void writeBackReference(int distance, int count) {
+    _check(count);
+    super.writeBackReference(distance, count);
+  }
 }

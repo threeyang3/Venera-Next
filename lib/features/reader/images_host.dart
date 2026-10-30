@@ -18,6 +18,11 @@ import 'package:venera_next/foundation/context.dart';
 import 'package:venera_next/foundation/translations.dart';
 import 'package:venera_next/network/request_scope.dart';
 import 'continuous_view.dart';
+import 'package:venera_next/foundation/comic_type.dart';
+import 'package:venera_next/foundation/application_preferences.dart';
+import 'package:venera_next/foundation/global_preference_store.dart';
+
+const _annotationPocEnabled = bool.fromEnvironment('COMICNOTES_POC');
 
 /// Application composition for reader content, view inputs and shell actions.
 class ReaderImagesHost extends StatelessWidget {
@@ -57,6 +62,7 @@ class ReaderImagesHost extends StatelessWidget {
       onLoading: reader.onReaderContentLoading,
       onCommitted: () {
         if (!current()) return;
+        reader.applyAnnotationFocusToLoadedContent();
         if (reader.jumpToLastPageOnLoad) {
           reader.controller.restorePage(reader.maxPage);
           reader.controller.setJumpToLastPage(false);
@@ -105,12 +111,12 @@ class ReaderImagesHost extends StatelessWidget {
     }
 
     bool current() => context.mounted && shell.mounted && chapters.isCurrent();
-    bool canAct() =>
+    bool targetCurrent() =>
         current() &&
-        chapters.canInteract() &&
         reader.mode == mode &&
         originalViewport != null &&
         identical(reader.imageViewController, originalViewport);
+    bool canAct() => targetCurrent() && chapters.canInteract();
     void collect() {
       if (canAct() &&
           (!mode.isGallery || identical(reader.controller.content, content))) {
@@ -126,6 +132,19 @@ class ReaderImagesHost extends StatelessWidget {
       final source = reader.type.comicSource;
       final comments = reader.createChapterCommentsRequest();
       return ReaderGalleryView(
+        annotations:
+            _annotationPocEnabled &&
+                reader.type == ComicType.local &&
+                !GlobalPreferenceStore(
+                  appdata.settings,
+                ).read(ImageProcessingPreferences.enabled)
+            ? reader.annotations
+            : null,
+        onAnnotationInputChanged: reader.onAnnotationInputChanged,
+        annotationSelectionRequests: reader.annotationSelectionRequests,
+        onExportAnnotations: () => reader.exportAnnotations(),
+        onOpenAnnotations: shell.openAnnotationInspector,
+        annotationTargetCurrent: targetCurrent,
         imageWork: reader.imageWork,
         key: Key(
           '${reader.mode.key}_${reader.imagesPerPage}_${showComments}_$showCommentsAtEnd',
@@ -178,6 +197,19 @@ class ReaderImagesHost extends StatelessWidget {
     } else {
       final preferences = reader.preferences;
       return ReaderContinuousView(
+        annotations:
+            _annotationPocEnabled &&
+                reader.type == ComicType.local &&
+                !GlobalPreferenceStore(
+                  appdata.settings,
+                ).read(ImageProcessingPreferences.enabled)
+            ? reader.annotations
+            : null,
+        annotationSelectionRequests: reader.annotationSelectionRequests,
+        onAnnotationInputChanged: reader.onAnnotationInputChanged,
+        onExportAnnotations: () => reader.exportAnnotations(),
+        onOpenAnnotations: shell.openAnnotationInspector,
+        annotationTargetCurrent: targetCurrent,
         imageWork: reader.imageWork,
         key: Key(reader.mode.key),
         data: ReaderContinuousData(

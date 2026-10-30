@@ -34,6 +34,9 @@ class SliverGridComics extends StatefulWidget {
     this.onLongPressed,
     this.selections,
     this.useFavoriteDisplaySettings = false,
+    this.displayMode,
+    this.galleryColumns,
+    this.listSubtitleBuilder,
   });
 
   final List<Comic> comics;
@@ -51,6 +54,9 @@ class SliverGridComics extends StatefulWidget {
   final void Function(Comic, int heroID)? onLongPressed;
 
   final bool useFavoriteDisplaySettings;
+  final ComicTileDisplayMode? displayMode;
+  final int? galleryColumns;
+  final String Function(Comic)? listSubtitleBuilder;
 
   @override
   State<SliverGridComics> createState() => _SliverGridComicsState();
@@ -135,11 +141,13 @@ class _SliverGridComicsState extends State<SliverGridComics> {
   @override
   Widget build(BuildContext context) {
     final favoriteDisplayState = comicFavoriteDisplayState();
-    final favoriteDisplayMode = widget.useFavoriteDisplaySettings
-        ? (favoriteDisplayState.isGallery
-              ? ComicTileDisplayMode.gallery
-              : ComicTileDisplayMode.detailed)
-        : null;
+    final favoriteDisplayMode =
+        widget.displayMode ??
+        (widget.useFavoriteDisplaySettings
+            ? (favoriteDisplayState.isGallery
+                  ? ComicTileDisplayMode.gallery
+                  : ComicTileDisplayMode.detailed)
+            : null);
     return _SliverGridComics(
       comics: comics,
       heroIDs: heroIDs,
@@ -151,9 +159,12 @@ class _SliverGridComicsState extends State<SliverGridComics> {
       onLongPressed: widget.onLongPressed,
       onBlocked: update,
       favoriteDisplayMode: favoriteDisplayMode,
-      galleryColumns: favoriteDisplayMode == ComicTileDisplayMode.gallery
-          ? favoriteDisplayState.galleryColumns
-          : null,
+      listSubtitleBuilder: widget.listSubtitleBuilder,
+      galleryColumns:
+          widget.galleryColumns ??
+          (favoriteDisplayMode == ComicTileDisplayMode.gallery
+              ? favoriteDisplayState.galleryColumns
+              : null),
     );
   }
 }
@@ -171,6 +182,7 @@ class _SliverGridComics extends StatelessWidget {
     this.selection,
     this.favoriteDisplayMode,
     this.galleryColumns,
+    this.listSubtitleBuilder,
   });
 
   final List<Comic> comics;
@@ -194,50 +206,57 @@ class _SliverGridComics extends StatelessWidget {
   final ComicTileDisplayMode? favoriteDisplayMode;
 
   final int? galleryColumns;
+  final String Function(Comic)? listSubtitleBuilder;
 
   @override
   Widget build(BuildContext context) {
+    final delegate = SliverChildBuilderDelegate((context, index) {
+      if (index == comics.length - 1) {
+        onLastItemBuild?.call();
+      }
+      var badge = badgeBuilder?.call(comics[index]);
+      var isSelected = selection == null
+          ? false
+          : selection![comics[index]] ?? false;
+      var comic = ComicTile(
+        comic: comics[index],
+        badge: badge,
+        menuOptions: menuBuilder?.call(comics[index]),
+        onTap: onTap != null
+            ? () => onTap!(comics[index], heroIDs[index])
+            : null,
+        onLongPressed: onLongPressed != null
+            ? () => onLongPressed!(comics[index], heroIDs[index])
+            : null,
+        onBlocked: onBlocked,
+        heroID: heroIDs[index],
+        displayMode: favoriteDisplayMode,
+        listSubtitle: listSubtitleBuilder?.call(comics[index]),
+      );
+      if (selection == null) {
+        return comic;
+      }
+      return AnimatedContainer(
+        key: ValueKey(comics[index].id),
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Theme.of(context).colorScheme.secondaryContainer.toOpacity(0.72)
+              : null,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        margin: const EdgeInsets.all(4),
+        child: comic,
+      );
+    }, childCount: comics.length);
+    if (favoriteDisplayMode == ComicTileDisplayMode.compactList) {
+      return SliverFixedExtentList(
+        itemExtent: 82 * MediaQuery.textScalerOf(context).scale(13) / 13,
+        delegate: delegate,
+      );
+    }
     return SliverGrid(
-      delegate: SliverChildBuilderDelegate((context, index) {
-        if (index == comics.length - 1) {
-          onLastItemBuild?.call();
-        }
-        var badge = badgeBuilder?.call(comics[index]);
-        var isSelected = selection == null
-            ? false
-            : selection![comics[index]] ?? false;
-        var comic = ComicTile(
-          comic: comics[index],
-          badge: badge,
-          menuOptions: menuBuilder?.call(comics[index]),
-          onTap: onTap != null
-              ? () => onTap!(comics[index], heroIDs[index])
-              : null,
-          onLongPressed: onLongPressed != null
-              ? () => onLongPressed!(comics[index], heroIDs[index])
-              : null,
-          onBlocked: onBlocked,
-          heroID: heroIDs[index],
-          displayMode: favoriteDisplayMode,
-        );
-        if (selection == null) {
-          return comic;
-        }
-        return AnimatedContainer(
-          key: ValueKey(comics[index].id),
-          duration: const Duration(milliseconds: 150),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? Theme.of(
-                    context,
-                  ).colorScheme.secondaryContainer.toOpacity(0.72)
-                : null,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: const EdgeInsets.all(4),
-          child: comic,
-        );
-      }, childCount: comics.length),
+      delegate: delegate,
       gridDelegate: SliverGridDelegateWithComics(
         galleryColumns: galleryColumns,
         forceDetailed: favoriteDisplayMode == ComicTileDisplayMode.detailed,

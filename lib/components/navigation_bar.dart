@@ -52,6 +52,9 @@ class NaviPane extends StatefulWidget {
     required this.observer,
     required this.navigatorKey,
     super.key,
+    this.expandedSidebarBuilder,
+    this.expandedSidebarBreakpoint,
+    this.contentRevision,
   });
 
   final List<PaneItemEntry> paneItems;
@@ -67,6 +70,10 @@ class NaviPane extends StatefulWidget {
   final NaviObserver observer;
 
   final GlobalKey<NavigatorState> navigatorKey;
+  final Widget Function(BuildContext context, NaviPaneState state)?
+  expandedSidebarBuilder;
+  final double? expandedSidebarBreakpoint;
+  final Object? contentRevision;
 
   @override
   State<NaviPane> createState() => NaviPaneState();
@@ -159,6 +166,9 @@ class NaviPaneState extends State<NaviPane>
       }
       widget.observer.addListener(onNavigatorStateChange);
     }
+    if (oldWidget.contentRevision != widget.contentRevision) {
+      mainViewUpdateHandler?.call();
+    }
   }
 
   @override
@@ -177,7 +187,7 @@ class NaviPaneState extends State<NaviPane>
     if (width > changePoint) {
       target = 2;
     }
-    if (width > changePoint2) {
+    if (width > (widget.expandedSidebarBreakpoint ?? changePoint2)) {
       target = 3;
     }
     return target;
@@ -350,6 +360,12 @@ class NaviPaneState extends State<NaviPane>
 
   Widget buildLeft() {
     final value = controller.value;
+    if (value == 3 && widget.expandedSidebarBuilder != null) {
+      return SizedBox(
+        width: _kSideBarWidth,
+        child: widget.expandedSidebarBuilder!(context, this),
+      );
+    }
     final topPadding = MediaQuery.paddingOf(context).top;
     final dividerColor = Theme.of(context).colorScheme.outlineVariant;
     const paddingHorizontal = 12.0;

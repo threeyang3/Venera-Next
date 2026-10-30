@@ -1,0 +1,31 @@
+{
+  "candidate": "rc4",
+  "bytes": 23937430,
+  "sha256": "03a1b830003eef543fb2ad0511c2e5db617a37bad0988eda2cccf5686b9d0ec1",
+  "executableSha256": "84c19207d9c06d07603e9bfb53197d1d4dabbc184fc5f70f6a053e9c5d6ac47b",
+  "architecture": "arm64",
+  "signature": "verified-deep-strict-after-unpacking",
+  "tests": {
+    "annotationRegression": "202 passed, 1 configuration skip before final floating layout",
+    "finalWorkspaceAndInspector": "13 passed",
+    "defaultInspector": "7 passed, 1 configuration skip",
+    "analyze": "clean"
+  },
+  "nativeVerified": [
+    "compact library list",
+    "search and clear",
+    "context menu",
+    "view restored after full process exit and relaunch",
+    "annotation End, Up and Enter navigation",
+    "immersive inspector from existing annotation toolbar",
+    "floating close preserves immersive mode",
+    "return to docked workspace"
+  ],
+  "pending": [
+    "native Command-F and other modifier shortcuts",
+    "Chinese IME",
+    "physical trackpad",
+    "external comicnotes scheme acceptance",
+    "complete MVP acceptance"
+  ]
+}

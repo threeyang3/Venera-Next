@@ -7,12 +7,18 @@ import '../local_storage_guard.dart';
 import 'package:venera_next/foundation/app.dart';
 import 'package:venera_next/foundation/file_interaction.dart';
 import 'package:xml/xml.dart';
+import 'package:venera_next/foundation/comic_source_provenance.dart';
 
 class EpubImportPage {
-  const EpubImportPage({required this.file, required this.extension});
+  const EpubImportPage({
+    required this.file,
+    required this.extension,
+    this.source = const {},
+  });
 
   final File file;
   final String extension;
+  final Map<String, Object?> source;
 }
 
 class EpubImportChapter {
@@ -66,6 +72,19 @@ abstract final class EpubComicImporter {
     )..createSync(recursive: true);
     DocumentImportSession? session;
     try {
+      final fingerprint = const bool.fromEnvironment('COMICNOTES_POC')
+          ? await ComicSourceProvenance.fingerprint(file)
+          : null;
+      final provenance = fingerprint == null
+          ? null
+          : ComicSourceProvenance(
+              source: {
+                'kind': 'epub',
+                'uri': file.absolute.uri.toString(),
+                ...fingerprint,
+              },
+              pages: {},
+            );
       await CBZ.extractArchive(file, cache);
       final data = inspectExtracted(
         cache,
@@ -95,11 +114,27 @@ abstract final class EpubComicImporter {
         for (var pageIndex = 0; pageIndex < chapter.pages.length; pageIndex++) {
           final page = chapter.pages[pageIndex];
           if (chapterId == null) flatPageIndex++;
+          final importedIndex = chapterId == null
+              ? flatPageIndex
+              : pageIndex + 1;
           await session.copyPage(
             page.file,
             pageIndex: chapterId == null ? flatPageIndex : pageIndex + 1,
             extension: page.extension,
             chapterId: chapterId,
+          );
+          await provenance?.record(
+            extracted: page.file,
+            imported: File(
+              session.pagePath(
+                pageIndex: importedIndex,
+                extension: page.extension,
+                chapterId: chapterId,
+              ),
+            ),
+            workspace: cache,
+            destination: session.directory,
+            locator: page.source,
           );
           importedPages++;
           onProgress?.call(importedPages, data.pageCount);
@@ -112,6 +147,14 @@ abstract final class EpubComicImporter {
         cover: coverName,
         chapters: chapterMap,
       );
+      if (provenance != null) {
+        final current = await ComicSourceProvenance.fingerprint(file);
+        if (current['sha256'] != fingerprint!['sha256'] ||
+            current['size'] != fingerprint['size']) {
+          throw const FileSystemException('EPUB source changed during import');
+        }
+        await provenance.write(session.directory);
+      }
       await session.output.register(comic, registerComic);
       return comic;
     } catch (error, stack) {
@@ -179,17 +222,18 @@ abstract final class EpubComicImporter {
     if (spine == null) {
       throw const FormatException('EPUB spine is missing');
     }
-    final spineItems = <_ManifestItem>[];
-    for (final itemRef in spine.childElements.where(
-      (element) => element.name.local == 'itemref',
-    )) {
+    final spineItems = <(int, _ManifestItem)>[];
+    for (final (spineIndex, itemRef)
+        in spine.childElements
+            .where((element) => element.name.local == 'itemref')
+            .indexed) {
       if (itemRef.getAttribute('linear')?.toLowerCase() == 'no') continue;
       final idRef = itemRef.getAttribute('idref');
       final item = idRef == null ? null : manifest[idRef];
       if (item == null) {
         throw const FormatException('EPUB spine references a missing item');
       }
-      spineItems.add(item);
+      spineItems.add((spineIndex, item));
     }
 
     final navigationLabels = _readNavigationLabels(
@@ -198,8 +242,41 @@ abstract final class EpubComicImporter {
       spine.getAttribute('toc'),
     );
     final sections = <_EpubSection>[];
-    for (final item in spineItems) {
-      final pages = _readItemPages(root, item, mediaTypesByPath);
+    for (final (spineIndex, item) in spineItems) {
+      final rawPages = _readItemPages(root, item, mediaTypesByPath);
+      final occurrences = <String, int>{};
+      final pages = <EpubImportPage>[];
+      for (final (imageIndex, page) in rawPages.indexed) {
+        final resource = path
+            .split(path.relative(page.file.path, from: root.path))
+            .join('/');
+        final occurrence = occurrences.update(
+          resource,
+          (value) => value + 1,
+          ifAbsent: () => 0,
+        );
+        pages.add(
+          EpubImportPage(
+            file: page.file,
+            extension: page.extension,
+            source: Map.unmodifiable({
+              'opfPath': opfRelativePath,
+              'spineIndex': spineIndex,
+              'spineItemId': item.id,
+              'spineItemPath': item.relativePath,
+              'imageOccurrence': imageIndex,
+              'imageResourcePath': resource,
+              'resourceOccurrence': occurrence,
+              'imageManifestIds':
+                  manifest.values
+                      .where((entry) => entry.relativePath == resource)
+                      .map((entry) => entry.id)
+                      .toList()
+                    ..sort(),
+            }),
+          ),
+        );
+      }
       if (pages.isEmpty) continue;
       sections.add(
         _EpubSection(

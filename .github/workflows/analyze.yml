@@ -72,11 +72,18 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - run: python3 .github/scripts/release_version.py --check
       - run: python3 .github/scripts/check_structure_imports.py
       - run: python3 .github/scripts/check_architecture_dependencies.py
       - run: python3 -m unittest discover -s .github/scripts/tests -p "test_*.py"
       - run: flutter pub get --enforce-lockfile
+      - name: 验证 Cargokit 识别已安装的锁定 Rust 版本
+        working-directory: packages/rhttp/cargokit/build_tool
+        run: |
+          dart pub get
+          dart test test/rustup_test.dart
       - name: 准备并验证独立代码审查工具
         working-directory: tool/code_audit
         run: |
@@ -115,6 +122,8 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - run: flutter pub get --enforce-lockfile
       - uses: actions/download-artifact@v8
         with:
@@ -126,6 +135,21 @@ jobs:
           sudo apt-get install -y cmake ninja-build g++ libsqlite3-dev
           python3 .github/scripts/prepare_linux_test_libraries.py
       - run: flutter test --coverage
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/test-native/lib
+      - name: ComicNotes 功能开关回归
+        run: |
+          flutter test --concurrency=1 \
+            --dart-define=COMICNOTES_POC=true \
+            --dart-define=COMICNOTES_WORKSPACE=true \
+            test/features/annotations \
+            test/features/reader \
+            test/components/context_menu_test.dart \
+            test/components/tooltip_accessibility_test.dart \
+            test/components/overlay_serialization_accessibility_test.dart \
+            test/app_shell/import_commands_test.dart \
+            test/app_shell/mac_library_sidebar_test.dart \
+            test/app_shell/mac_library_integration_test.dart
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/build/test-native/lib
       - name: 汇总 Dart 覆盖率

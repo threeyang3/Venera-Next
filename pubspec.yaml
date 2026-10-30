@@ -88,7 +88,12 @@ dependencies:
   archive: ^4.2.0
   image: ^4.9.2
   pdfrx: ^2.4.7
+  # Already pinned transitively; expose PDFium page boxes through pdfrx's
+  # supported native-handle bridge without upgrading the rendering engine.
+  pdfium_dart: 0.2.5
+  ffi: 2.2.0
   xml: ^6.6.1
+  cupertino_icons: ^1.0.9
 
 dev_dependencies:
   flutter_test:

@@ -22,6 +22,31 @@ void main() {
         .load();
   });
 
+  for (final finish in ['select', 'dismiss', 'dispose']) {
+    testWidgets('menu close callback runs once; $finish', (tester) async {
+      final fixture = _Fixture();
+      await fixture.mount(tester);
+      var closed = 0;
+      final owner = fixture.owner.currentState!;
+      owner.contextMenus.show(owner.context, const Offset(100, 100), [
+        MenuEntry(text: 'Complete', onClick: () => fixture.calls.add(1)),
+      ], onClosed: () => closed++);
+      await tester.pumpAndSettle();
+      if (finish == 'select') {
+        await tester.tap(find.text('Complete'));
+      } else if (finish == 'dismiss') {
+        await tester.tapAt(const Offset(700, 500));
+      } else {
+        owner.contextMenus.dispose();
+      }
+      await tester.pumpAndSettle();
+      expect(closed, 1);
+      expect(fixture.calls, finish == 'select' ? [1] : isEmpty);
+      await fixture.dispose(tester);
+      expect(closed, 1);
+    });
+  }
+
   for (final dispose in [false, true]) {
     testWidgets('menu action is revoked by pop observer; dispose=$dispose', (
       tester,

@@ -6,9 +6,11 @@
 *.swp
 .DS_Store
 .atom/
+.build/
 .buildlog/
 .history
 .svn/
+.swiftpm/
 migrate_working_dir/
 */*/generated_*
 */*/Generated*
@@ -30,6 +32,8 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/logs/*
+!/logs/README.md
 /apple/.build/
 
 # 符号化相关

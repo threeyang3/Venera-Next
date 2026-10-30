@@ -1,0 +1,58 @@
+[
+  {
+    "mediaBox": [
+      0,
+      0,
+      360,
+      480
+    ],
+    "cropBox": [
+      -50,
+      20,
+      300,
+      520
+    ],
+    "effectiveBox": [
+      0,
+      20,
+      300,
+      480
+    ],
+    "rotation": 90,
+    "widthPoints": 460,
+    "heightPoints": 300,
+    "topLeftRgb": [
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "mediaBox": [
+      0,
+      0,
+      640,
+      360
+    ],
+    "cropBox": [
+      40,
+      -30,
+      600,
+      300
+    ],
+    "effectiveBox": [
+      40,
+      0,
+      600,
+      300
+    ],
+    "rotation": 270,
+    "widthPoints": 300,
+    "heightPoints": 560,
+    "topLeftRgb": [
+      0,
+      1,
+      0
+    ]
+  }
+]

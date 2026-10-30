@@ -25,6 +25,7 @@ import 'package:venera_next/features/reader/gesture_port.dart';
 import 'package:venera_next/features/reader/image_favorite_swipe.dart';
 import 'package:venera_next/features/reader/platform_effects_controller.dart';
 import 'shell_data.dart';
+import 'annotation_workspace.dart';
 import 'progress_navigation.dart';
 import 'package:venera_next/foundation/context.dart';
 import 'package:venera_next/features/reader/image_export.dart';
@@ -61,6 +62,10 @@ class ReaderScaffold extends StatefulWidget {
     required this.createChapterComments,
     required this.chapterNavigation,
     required this.child,
+    this.annotationInspectorBuilder,
+    this.dockedAnnotationInspectorBuilder,
+    this.annotationWorkspaceEnabled = false,
+    this.onCanvasChanged,
   });
 
   final ReaderShellData data;
@@ -83,12 +88,18 @@ class ReaderScaffold extends StatefulWidget {
   final ReaderChapterCommentsRequest? Function() createChapterComments;
   final ReaderChapterNavigationAction? chapterNavigation;
   final Widget child;
+  final WidgetBuilder? annotationInspectorBuilder;
+  final Widget Function(BuildContext, VoidCallback)?
+  dockedAnnotationInspectorBuilder;
+  final bool annotationWorkspaceEnabled;
+  final VoidCallback? onCanvasChanged;
 
   @override
   State<ReaderScaffold> createState() => ReaderScaffoldState();
 }
 
 class ReaderScaffoldState extends State<ReaderScaffold> {
+  final _workspaceKey = GlobalKey<ReaderAnnotationWorkspaceState>();
   var _brightnessPreview = ReaderBrightnessPreview();
 
   bool _isOpen = false;
@@ -212,7 +223,24 @@ class ReaderScaffoldState extends State<ReaderScaffold> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ReaderAnnotationWorkspace(
+    key: _workspaceKey,
+    onCanvasChanged: widget.onCanvasChanged,
+    enabled:
+        widget.annotationWorkspaceEnabled &&
+        widget.dockedAnnotationInspectorBuilder != null,
+    title: widget.data.title,
+    chapterTitle: widget.data.chapterTitle,
+    onBack: () => unawaited(widget.onExit()),
+    onSettings: openSetting,
+    onChapters: widget.data.hasChapters ? openChapterDrawer : null,
+    inspectorBuilder: (onClose) =>
+        widget.dockedAnnotationInspectorBuilder!(context, onClose),
+    canvasBuilder: (toolbarVisible) =>
+        _buildReaderCanvas(context, hideTopBar: toolbarVisible),
+  );
+
+  Widget _buildReaderCanvas(BuildContext context, {required bool hideTopBar}) {
     final isOnChapterCommentsPage = widget.data.onCommentsPage;
     final brightnessPanelVisible = _isOpen && _brightnessPanelOpen;
     final menuDuration = MediaQuery.disableAnimationsOf(context)
@@ -244,18 +272,19 @@ class ReaderScaffoldState extends State<ReaderScaffold> {
           ),
         if (!isOnChapterCommentsPage) _buildInformation(),
         ReaderChapterNavigationButton(action: widget.chapterNavigation),
-        AnimatedPositioned(
-          duration: menuDuration,
-          top: _isOpen ? 0 : -(topBarHeight + context.padding.top),
-          left: 0,
-          right: 0,
-          // Insets change immediately when the native/custom frame changes.
-          // Keep content height in sync; animate only its entrance position.
-          child: SizedBox(
-            height: topBarHeight + context.padding.top,
-            child: _menuRegion(visible: _isOpen, child: buildTop()),
+        if (!hideTopBar)
+          AnimatedPositioned(
+            duration: menuDuration,
+            top: _isOpen ? 0 : -(topBarHeight + context.padding.top),
+            left: 0,
+            right: 0,
+            // Insets change immediately when the native/custom frame changes.
+            // Keep content height in sync; animate only its entrance position.
+            child: SizedBox(
+              height: topBarHeight + context.padding.top,
+              child: _menuRegion(visible: _isOpen, child: buildTop()),
+            ),
           ),
-        ),
         AnimatedPositioned(
           duration: menuDuration,
           bottom: _isOpen
@@ -299,6 +328,12 @@ class ReaderScaffoldState extends State<ReaderScaffold> {
     chapterTitle: widget.data.chapterTitle,
     onBack: () => unawaited(widget.onExit()),
     actions: [
+      if (widget.annotationInspectorBuilder != null)
+        IconButton(
+          tooltip: '全书批注',
+          icon: const Icon(Icons.note_alt_outlined),
+          onPressed: openAnnotationInspector,
+        ),
       if (shouldShowChapterComments())
         Tooltip(
           message: "Chapter Comments".tl,
@@ -316,6 +351,18 @@ class ReaderScaffoldState extends State<ReaderScaffold> {
       ),
     ],
   );
+
+  void openAnnotationInspector() {
+    final workspace = _workspaceKey.currentState;
+    if (workspace?.available == true) {
+      workspace!.showInspector();
+      return;
+    }
+    final builder = widget.annotationInspectorBuilder;
+    if (builder != null) {
+      _sidebarBinding.show(context, builder(context), width: 380);
+    }
+  }
 
   late var _favorites = _createFavorites();
 

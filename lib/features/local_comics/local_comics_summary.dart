@@ -169,14 +169,28 @@ class _LocalComicsSummaryState extends State<LocalComicsSummary> {
   }
 
   void import() {
-    showDialog(
-      barrierDismissible: false,
-      context: appNavigation.rootContext,
-      builder: (context) {
-        return const _ImportComicsWidget();
-      },
-    );
+    showLocalComicImportDialog(appNavigation.rootContext);
   }
+}
+
+final _activeImportDialogs = Expando<Future<void>>();
+Future<void> showLocalComicImportDialog(BuildContext context) {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final active = _activeImportDialogs[navigator];
+  if (active != null) return active;
+  late final Future<void> pending;
+  pending =
+      showDialog<void>(
+        barrierDismissible: false,
+        context: context,
+        builder: (_) => const _ImportComicsWidget(),
+      ).whenComplete(() {
+        if (identical(_activeImportDialogs[navigator], pending)) {
+          _activeImportDialogs[navigator] = null;
+        }
+      });
+  _activeImportDialogs[navigator] = pending;
+  return pending;
 }
 
 class _ImportComicsWidget extends StatefulWidget {
@@ -202,6 +216,7 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
   String? selectedFolder;
 
   bool copyToLocalFolder = true;
+  bool retainPdfOriginals = true;
 
   @override
   void dispose() {
@@ -291,6 +306,16 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
                         });
                       },
                     ).paddingHorizontal(8),
+                  if (type == 4 && const bool.fromEnvironment('COMICNOTES_POC'))
+                    CheckboxListTile(
+                      title: const Text('保留 PDF 原件副本'),
+                      subtitle: const Text(
+                        '用于清晰截图，会额外占用一份原文件的空间。关闭后，原件失联时将使用导入的渲染缓存。',
+                      ),
+                      value: retainPdfOriginals,
+                      onChanged: (value) =>
+                          setState(() => retainPdfOriginals = value ?? true),
+                    ).paddingHorizontal(8),
                   const SizedBox(height: 8),
                   Text(info).paddingHorizontal(24),
                 ],
@@ -299,6 +324,7 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
       actions: [
         Button.text(
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 Icons.help_outline,
@@ -314,7 +340,7 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
               "https://github.com/CyrilPeng/venera-next/blob/main/doc/user/import_comic.zh.md",
             );
           },
-        ).fixWidth(90).paddingRight(8),
+        ).paddingRight(8),
         Button.filled(
           isLoading: loading,
           onPressed: selectAndImport,
@@ -342,6 +368,7 @@ class _ImportComicsWidgetState extends State<_ImportComicsWidget> {
       ),
       selectedFolder: selectedFolder,
       copyToLocal: copyToLocalFolder,
+      retainPdfOriginals: retainPdfOriginals,
       presentation: ImportComicPresentation.forTask(task),
     );
     final selectedType = type;

@@ -18,7 +18,15 @@ import 'package:venera_next/features/favorites/side_bar.dart';
 const _kLeftBarWidth = 256.0;
 
 class FavoritesPage extends StatefulWidget {
-  const FavoritesPage({super.key});
+  const FavoritesPage({
+    super.key,
+    this.initialLocalFolder,
+    this.onFolderChanged,
+    this.useLibrarySidebar = false,
+  });
+  final String? initialLocalFolder;
+  final bool useLibrarySidebar;
+  final void Function(bool isNetwork, String? folder)? onFolderChanged;
 
   @override
   State<FavoritesPage> createState() => _FavoritesPageState();
@@ -39,6 +47,7 @@ class _FavoritesPageState extends SettingsSaveState<FavoritesPage> {
       this.folder = folder;
     });
     folderList?.update();
+    widget.onFolderChanged?.call(isNetwork, folder);
     saveSetting(
       'favoriteFolder',
       () => appdata.updateImplicit((draft) {
@@ -59,7 +68,33 @@ class _FavoritesPageState extends SettingsSaveState<FavoritesPage> {
         !FavoritesScope.read(context).existsFolder(folder!)) {
       folder = null;
     }
+    if (widget.initialLocalFolder case final selected?) {
+      if (FavoritesScope.read(context).existsFolder(selected)) {
+        folder = selected;
+        isNetwork = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && widget.initialLocalFolder == selected) {
+            setFolder(false, selected);
+          }
+        });
+      }
+    }
     super.initState();
+  }
+
+  @override
+  void didUpdateWidget(FavoritesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialLocalFolder != null &&
+        widget.initialLocalFolder != oldWidget.initialLocalFolder &&
+        FavoritesScope.read(context).existsFolder(widget.initialLocalFolder!)) {
+      final selected = widget.initialLocalFolder;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.initialLocalFolder == selected) {
+          setFolder(false, selected);
+        }
+      });
+    }
   }
 
   @override
@@ -76,7 +111,9 @@ class _FavoritesPageState extends SettingsSaveState<FavoritesPage> {
               child: Stack(
                 children: [
                   AnimatedPositioned(
-                    left: context.width <= favoritesTwoPanelChangeWidth
+                    left:
+                        (widget.useLibrarySidebar && context.width > 980) ||
+                            context.width <= favoritesTwoPanelChangeWidth
                         ? -_kLeftBarWidth
                         : 0,
                     top: 0,
@@ -93,7 +130,9 @@ class _FavoritesPageState extends SettingsSaveState<FavoritesPage> {
                   ),
                   Positioned(
                     top: 0,
-                    left: context.width <= favoritesTwoPanelChangeWidth
+                    left:
+                        (widget.useLibrarySidebar && context.width > 980) ||
+                            context.width <= favoritesTwoPanelChangeWidth
                         ? 0
                         : _kLeftBarWidth,
                     right: 0,

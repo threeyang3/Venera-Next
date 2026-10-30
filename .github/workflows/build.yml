@@ -88,6 +88,8 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - name: 解码并安装 Android 证书
         env:
           STORE_FILE: ${{ secrets.ANDROID_KEYSTORE }}
@@ -172,6 +174,8 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - name: 构建 Windows 安装包
         run: |
           flutter pub get --enforce-lockfile
@@ -258,6 +262,8 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - run: sudo xcode-select --switch /Applications/Xcode_16.4.app
       - name: 准备 Rust 工具链
         run: |
@@ -309,6 +315,8 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - run: sudo xcode-select --switch /Applications/Xcode_16.4.app
       - name: 准备 Rust 工具链
         run: |
@@ -378,6 +386,8 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - name: 准备 Rust 工具链
         run: python3 .github/scripts/prepare_rust_toolchain.py
       - run: flutter pub get --enforce-lockfile
@@ -428,6 +438,8 @@ jobs:
           channel: 'master'
           flutter-version-file: pubspec.yaml
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - name: 准备 Rust 工具链
         run: python3 .github/scripts/prepare_rust_toolchain.py
       - run: flutter pub get --enforce-lockfile

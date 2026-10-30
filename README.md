@@ -18,6 +18,15 @@
 
 </div>
 
+> 此开发分支实现 **ComicNotes Mac 漫画批注阅读器**，基于 VeneraNext `v1.18.1`。完整初版仍有待验收项，当前提供本机 arm64 候选版。
+
+- 区域批注、整页笔记、书签、标签与全书查找；独立 SQLite、稳定 UUID、备份恢复与原件重新关联。
+- CBZ、图片 EPUB、PDF 和图片目录的来源映射；Markdown + 原质量 PNG 导出与批注引用链接。
+- Mac 书库侧栏、封面/列表与视图记忆；批注键盘导航；专注阅读中浮出批注栏，保持画布尺寸。
+- 旧 UI 保留开关回退。开发运行：`FLUTTER_BIN=/path/to/flutter bash tool/run_annotation_poc.sh`，需要 Flutter 3.41.4 和完整 Xcode。
+
+启用步骤、测试与原生验证、候选包及剩余限制见[初版开发记录](doc/development/comicnotes-poc.zh.md)和[验收表](doc/development/comicnotes-mvp-audit.zh.md)。本机诊断日志与构建产物不纳入源码；rc4 校验摘要见[验证记录](doc/development/comicnotes-rc4-validation.json)。
+
 <!-- featured-sponsors:start -->
 <!-- featured-sponsors:end -->
 

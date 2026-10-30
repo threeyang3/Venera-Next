@@ -549,6 +549,14 @@ class _WindowBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (App.isMacOS && const bool.fromEnvironment('COMICNOTES_WORKSPACE')) {
+      return const Center(
+        child: Text(
+          'ComicNotes',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+      );
+    }
     final foreground = dark ? Colors.white : Colors.black;
     final title = Text(
       'VeneraNext',

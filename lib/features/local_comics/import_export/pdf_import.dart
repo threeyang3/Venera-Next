@@ -9,6 +9,30 @@ import 'package:venera_next/features/local_comics/local_storage_guard.dart';
 import 'package:venera_next/foundation/file_system.dart';
 import 'package:venera_next/foundation/persistence_failure.dart';
 import 'comic_import_output.dart';
+import 'package:venera_next/foundation/comic_source_provenance.dart';
+import 'package:venera_next/foundation/pdf_source_adapter.dart';
+
+class _PdfImportSource {
+  _PdfImportSource._(this.file, this.fingerprint, this.retainOriginal);
+  final File file;
+  final Map<String, Object?> fingerprint;
+  final bool retainOriginal;
+  static Future<_PdfImportSource> capture(
+    File file, {
+    bool retainOriginal = false,
+  }) async => _PdfImportSource._(
+    file,
+    Map.unmodifiable(await ComicSourceProvenance.fingerprint(file)),
+    retainOriginal,
+  );
+  Future<void> verify() async {
+    final current = await ComicSourceProvenance.fingerprint(file);
+    if (current['sha256'] != fingerprint['sha256'] ||
+        current['size'] != fingerprint['size']) {
+      throw const FileSystemException('PDF source changed during import');
+    }
+  }
+}
 
 const double _pdfRenderScale = 3;
 const int _pdfRenderMaxEdge = 3000;
@@ -65,8 +89,12 @@ abstract final class PdfComicImporter {
     DocumentImportProgress? onProgress,
     DocumentImportCancellation? cancellation,
     Future<void> Function(LocalComic comic)? registerComic,
+    bool retainOriginal = false,
   }) async {
     cancellation?.throwIfCancelled();
+    final source = const bool.fromEnvironment('COMICNOTES_POC')
+        ? await _PdfImportSource.capture(file, retainOriginal: retainOriginal)
+        : null;
     await pdfrxFlutterInitialize();
     late final PdfDocument document;
     try {
@@ -76,12 +104,13 @@ abstract final class PdfComicImporter {
         'Password-protected PDF files are not supported',
       );
     }
-    return importDocument(
+    return _importCapturedDocument(
       document,
       title: title ?? file.basenameWithoutExt,
       onProgress: onProgress,
       cancellation: cancellation,
       registerComic: registerComic,
+      source: source,
     );
   }
 
@@ -94,6 +123,23 @@ abstract final class PdfComicImporter {
     DocumentImportProgress? onProgress,
     DocumentImportCancellation? cancellation,
     Future<void> Function(LocalComic comic)? registerComic,
+  }) => _importCapturedDocument(
+    document,
+    title: title,
+    onProgress: onProgress,
+    cancellation: cancellation,
+    registerComic: registerComic,
+  );
+
+  // Only the file entry point can pair a captured fingerprint with a document;
+  // callers of importDocument cannot accidentally bind another PDF's identity.
+  static Future<LocalComic> _importCapturedDocument(
+    PdfDocument document, {
+    required String title,
+    DocumentImportProgress? onProgress,
+    DocumentImportCancellation? cancellation,
+    Future<void> Function(LocalComic comic)? registerComic,
+    _PdfImportSource? source,
   }) async {
     var entered = false;
     try {
@@ -105,6 +151,7 @@ abstract final class PdfComicImporter {
           onProgress: onProgress,
           cancellation: cancellation,
           registerComic: registerComic,
+          source: source,
         );
       });
     } catch (error, stack) {
@@ -125,6 +172,7 @@ abstract final class PdfComicImporter {
     DocumentImportProgress? onProgress,
     DocumentImportCancellation? cancellation,
     Future<void> Function(LocalComic comic)? registerComic,
+    _PdfImportSource? source,
   }) async {
     DocumentImportSession? session;
     Object? operationError;
@@ -137,11 +185,40 @@ abstract final class PdfComicImporter {
         }
 
         session = DocumentImportSession.start(title);
+        final retainedPath = source?.retainOriginal == true
+            ? '.comicnotes-original.pdf'
+            : null;
+        final provenance = source == null
+            ? null
+            : ComicSourceProvenance(
+                source: {
+                  'kind': 'pdf',
+                  'uri': source.file.absolute.uri.toString(),
+                  ...source.fingerprint,
+                  'retainedPath': ?retainedPath,
+                },
+                pages: {},
+              );
+        if (retainedPath != null) {
+          final copy = await source!.file.copy(
+            FilePath.join(session.directory.path, retainedPath),
+          );
+          final copyFingerprint = await ComicSourceProvenance.fingerprint(copy);
+          if (copyFingerprint['sha256'] != source.fingerprint['sha256'] ||
+              copyFingerprint['size'] != source.fingerprint['size']) {
+            throw const FileSystemException(
+              'Retained PDF is not a complete original copy',
+            );
+          }
+        }
         final total = document.pages.length;
         onProgress?.call(0, total);
         for (var i = 0; i < total; i++) {
           cancellation?.throwIfCancelled();
           final page = document.pages[i];
+          final geometry = provenance == null
+              ? null
+              : await readPdfPageGeometry(document, i);
           final size = calculatePdfRenderSize(page.width, page.height);
           final rendered = await page.render(
             fullWidth: size.width.toDouble(),
@@ -163,6 +240,14 @@ abstract final class PdfComicImporter {
               session.pagePath(pageIndex: i + 1, extension: 'jpg'),
             );
             await pageFile.writeAsBytes(encoded);
+            if (provenance != null) {
+              provenance.pages[pageFile.name] = {
+                'kind': 'pdfPage',
+                ...geometry!.toJson(),
+                ...await ComicSourceProvenance.fingerprint(pageFile),
+                'retainedSourcePath': ?retainedPath,
+              };
+            }
             if (i == 0) {
               await pageFile.copyMem(
                 FilePath.join(session.directory.path, 'cover.jpg'),
@@ -180,6 +265,11 @@ abstract final class PdfComicImporter {
           tags: const [],
           cover: 'cover.jpg',
         );
+        if (provenance != null) {
+          await source!.verify();
+          cancellation?.throwIfCancelled();
+          await provenance.write(session.directory);
+        }
         await session.output.register(comic, registerComic);
         return comic;
       } catch (error, stack) {

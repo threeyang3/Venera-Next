@@ -5,6 +5,7 @@ import 'package:venera_next/routing/app_navigation.dart';
 import 'package:venera_next/foundation/context.dart';
 import 'package:venera_next/features/comic_source/comic_source.dart';
 import 'package:venera_next/features/comic_details/comic_details.dart';
+import 'annotation_links.dart';
 
 EventSubscription<Uri> createAppLinkSubscription() => EventSubscription(
   events: AppLinks().uriLinkStream,
@@ -16,6 +17,9 @@ EventSubscription<Uri> createAppLinkSubscription() => EventSubscription(
 
 Future<bool> handleAppLink(Uri uri, {bool Function()? isActive}) async {
   if (isActive?.call() == false) return false;
+  if (uri.scheme == 'comicnotes') {
+    return handleAnnotationAppLink(uri, isActive: isActive);
+  }
   for (var source in ComicSource.all()) {
     if (source.linkHandler != null) {
       if (source.linkHandler!.domains.contains(uri.host)) {

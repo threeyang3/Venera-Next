@@ -1,4 +1,13 @@
+import 'package:venera_next/app_runtime/annotation_manual_recovery.dart';
+import 'package:venera_next/app_shell/import_commands.dart';
+import 'package:venera_next/features/local_comics/local_comics.dart'
+    show showLocalComicImportDialog;
+import 'package:venera_next/foundation/navigation_admission.dart';
 import 'package:venera_next/features/history/image_favorites.dart';
+import 'package:venera_next/app_runtime/annotations.dart';
+import 'package:venera_next/app_runtime/annotation_export_binding.dart';
+import 'package:venera_next/app_runtime/annotation_navigation.dart';
+import 'package:venera_next/features/annotations/presentation/annotation_services_scope.dart';
 import 'package:venera_next/features/favorites/favorites_manager.dart';
 import 'package:venera_next/features/history/history_scope.dart';
 import 'package:venera_next/features/favorites/favorites_scope.dart';
@@ -26,6 +35,8 @@ import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flex_seed_scheme/flex_seed_scheme.dart';
 import 'package:flutter/material.dart';
+import 'app_runtime/annotation_source_relocation.dart';
+import 'app_runtime/annotation_recovery.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:venera_next/app_runtime/app_runtime.dart';
@@ -144,6 +155,12 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  final _importCommandRoutes = ImportCommandRoutes();
+  bool _hasAuthenticated = false;
+  bool get _comicNotesCommands =>
+      App.isMacOS &&
+      const bool.fromEnvironment('COMICNOTES_POC') &&
+      const bool.fromEnvironment('COMICNOTES_WORKSPACE');
   late final _library = webDavLibrary;
   late final _interactiveBindings = createPlatformInteractiveBindings(
     placement: widget.host.placement?.attach(),
@@ -309,6 +326,150 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     Color? tertiary,
     Brightness brightness,
   ) {
+    if (App.isMacOS && const bool.fromEnvironment('COMICNOTES_WORKSPACE')) {
+      final dark = brightness == Brightness.dark;
+      final surface = dark ? const Color(0xff202020) : Colors.white;
+      final chrome = dark ? const Color(0xff2b2b2b) : const Color(0xfff3f3f3);
+      final ink = dark ? const Color(0xffeeeeee) : const Color(0xff242424);
+      final blue = dark ? const Color(0xff0a84ff) : const Color(0xff007aff);
+      final shape = RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6),
+      );
+      return ThemeData(
+        brightness: brightness,
+        platform: TargetPlatform.macOS,
+        fontFamily: '.AppleSystemUIFont',
+        fontFamilyFallback: const [
+          'PingFang SC',
+          'Hiragino Sans',
+          'sans-serif',
+        ],
+        visualDensity: VisualDensity.compact,
+        splashFactory: NoSplash.splashFactory,
+        scaffoldBackgroundColor: surface,
+        colorScheme:
+            ColorScheme.fromSeed(
+              seedColor: blue,
+              brightness: brightness,
+            ).copyWith(
+              primary: blue,
+              surface: surface,
+              onSurface: ink,
+              surfaceTint: Colors.transparent,
+              surfaceContainerLow: chrome,
+              surfaceContainer: chrome,
+              surfaceContainerHigh: chrome,
+              surfaceContainerHighest: chrome,
+              outline: dark ? const Color(0xff555555) : const Color(0xffc7c7c7),
+              outlineVariant: dark
+                  ? const Color(0xff3d3d3d)
+                  : const Color(0xffdedede),
+            ),
+        textTheme: Typography.material2021().black
+            .apply(
+              fontFamily: '.AppleSystemUIFont',
+              bodyColor: ink,
+              displayColor: ink,
+            )
+            .copyWith(
+              bodyMedium: TextStyle(fontSize: 13, color: ink, height: 1.4),
+              bodySmall: TextStyle(
+                fontSize: 11,
+                color: ink.withValues(alpha: .65),
+              ),
+              titleLarge: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: ink,
+              ),
+              titleMedium: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ink,
+              ),
+              labelLarge: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: ink,
+              ),
+            ),
+        iconTheme: IconThemeData(size: 18, color: ink.withValues(alpha: .75)),
+        iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(
+            foregroundColor: ink.withValues(alpha: .75),
+            minimumSize: const Size(30, 28),
+            padding: const EdgeInsets.all(5),
+            shape: shape,
+            iconSize: 18,
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: blue,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(64, 28),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            shape: shape,
+            textStyle: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            minimumSize: const Size(48, 28),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            shape: shape,
+            textStyle: const TextStyle(fontSize: 12),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(48, 28),
+            shape: shape,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: chrome,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          titleTextStyle: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: ink,
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: surface,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 9,
+          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(5)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(5),
+            borderSide: BorderSide(
+              color: dark ? const Color(0xff505050) : const Color(0xffc7c7c7),
+              width: .7,
+            ),
+          ),
+        ),
+        dividerTheme: DividerThemeData(
+          color: dark ? const Color(0xff414141) : const Color(0xffdedede),
+          thickness: .5,
+        ),
+        scrollbarTheme: const ScrollbarThemeData(
+          thickness: WidgetStatePropertyAll(5),
+          radius: Radius.circular(3),
+        ),
+      );
+    }
     String? font;
     List<String>? fallback;
     if (App.isLinux || App.isWindows) {
@@ -376,6 +537,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     ).read(AppPreferences.authorizationRequired)) {
       home = AuthPage(
         onSuccessfulAuth: () {
+          _hasAuthenticated = true;
           appNavigation.rootContext.toReplacement(() => const MainPage());
         },
       );
@@ -401,6 +563,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           debugShowCheckedModeBanner: false,
           theme: getTheme(primary, secondary, tertiary, Brightness.light),
           navigatorKey: appNavigation.rootNavigatorKey,
+          navigatorObservers: [if (_comicNotesCommands) _importCommandRoutes],
           darkTheme: getTheme(primary, secondary, tertiary, Brightness.dark),
           themeMode: switch (GlobalPreferenceStore(
             appdata.settings,
@@ -455,6 +618,23 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   child: widget,
                 ),
               );
+              if (_comicNotesCommands) {
+                widget = ImportCommands(
+                  routes: _importCommandRoutes,
+                  canOpen: () =>
+                      mounted &&
+                      !this.widget.host.isClosing &&
+                      (!GlobalPreferenceStore(
+                            appdata.settings,
+                          ).read(AppPreferences.authorizationRequired) ||
+                          _hasAuthenticated) &&
+                      appNavigation.rootNavigatorKey.currentContext != null &&
+                      NavigationAdmission.allows(appNavigation.rootContext),
+                  open: () =>
+                      showLocalComicImportDialog(appNavigation.rootContext),
+                  child: widget,
+                );
+              }
               widget = ReaderPlatformEffectsScope(child: OverlayWidget(widget));
               if (App.isDesktop) {
                 widget = WindowFrame(
@@ -498,6 +678,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
               );
               widget = ReaderSessionScope(
                 onClosed: _dataSync.onDataChanged,
+                child: widget,
+              );
+              widget = AnnotationServicesScope(
+                openSession: openLocalAnnotationSession,
+                exportNotes: exportLocalAnnotations,
+                backupNotes: backupLocalAnnotations,
+                prepareRestore: prepareLocalAnnotationRestore,
+                relocateOriginal: selectAnnotationOriginal,
+                findRecovery: findRecoverableAnnotations,
+                recoverNotes: recoverLocalAnnotations,
+                findManualRecovery: findManualAnnotationRecovery,
+                prepareManualRecovery: prepareManualAnnotationRecovery,
+                locatePage: locateRegisteredAnnotationPage,
+                resolveLink: resolveAnnotationLinkDestination,
                 child: widget,
               );
               widget = DataSyncScope(controller: _dataSync, child: widget);

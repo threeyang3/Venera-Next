@@ -8,6 +8,19 @@ import 'package:path/path.dart' as path;
 
 import 'util.dart';
 
+/// Official rustup channels and numbered releases, excluding custom toolchains.
+/// A pinned release such as 1.92.0 is already usable offline when installed.
+List<String> officialToolchainNames(String output) {
+  final official = RegExp(
+    r'^(?:(?:stable|beta|nightly)(?:-\d{4}-\d{2}-\d{2})?|\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?)(?:-[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)?$',
+  );
+  return output
+      .split('\n')
+      .map((line) => line.trim().split(RegExp(r'\s+')).first)
+      .where((name) => official.hasMatch(name))
+      .toList();
+}
+
 class _Toolchain {
   _Toolchain(this.name, this.targets);
 
@@ -46,23 +59,8 @@ class Rustup {
       ?.targets;
 
   static List<_Toolchain> _getInstalledToolchains() {
-    String extractToolchainName(String line) {
-      // ignore (default) after toolchain name
-      final parts = line.split(' ');
-      return parts[0];
-    }
-
     final res = runCommand("rustup", ['toolchain', 'list']);
-
-    // To list all non-custom toolchains, we need to filter out lines that
-    // don't start with "stable", "beta", or "nightly".
-    Pattern nonCustom = RegExp(r"^(stable|beta|nightly)");
-    final lines = res.stdout
-        .toString()
-        .split('\n')
-        .where((e) => e.isNotEmpty && e.startsWith(nonCustom))
-        .map(extractToolchainName)
-        .toList(growable: true);
+    final lines = officialToolchainNames(res.stdout.toString());
 
     return lines
         .map((name) => _Toolchain(name, _getInstalledTargets(name)))

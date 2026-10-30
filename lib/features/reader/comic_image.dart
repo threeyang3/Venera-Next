@@ -39,6 +39,7 @@ class ComicImage extends StatefulWidget {
     int? cacheHeight,
     this.onInit,
     this.onDispose,
+    this.onImageChanged,
   }) : image = ResizeImage.resizeIfNeeded(cacheWidth, cacheHeight, image),
        assert(cacheWidth == null || cacheWidth > 0),
        assert(cacheHeight == null || cacheHeight > 0);
@@ -83,6 +84,7 @@ class ComicImage extends StatefulWidget {
   final void Function(State<ComicImage> state)? onInit;
 
   final void Function(State<ComicImage> state)? onDispose;
+  final VoidCallback? onImageChanged;
 
   static void clear() => ComicImageState.clear();
 
@@ -131,6 +133,84 @@ class ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
       : _imageInfo != null && _frameNumber != null
       ? AutoReadingImageState.ready
       : AutoReadingImageState.loading;
+
+  // A deactivated State is still mounted until finalization, but its Element
+  // can no longer supply a render object while a page replaces its children.
+  bool _imageLayoutActive = true;
+  bool get imageLayoutActive => mounted && _imageLayoutActive;
+
+  @override
+  void deactivate() {
+    _imageLayoutActive = false;
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    _imageLayoutActive = true;
+  }
+
+  /// Geometry of decoded content, excluding placeholder/error layouts.
+  Size? get originalImageSize => _imageInfo == null || _lastException != null
+      ? null
+      : decodedOriginalSize(_imageStream, _imageInfo!);
+
+  /// Each destination rectangle paints a normalized portion of the same source.
+  /// Wide-image halves retain their original coordinates even when reordered.
+  List<({Rect source, Rect destination})> get imagePaintSlices {
+    if (!imageLayoutActive) return const [];
+    final info = _imageInfo;
+    final box = context.findRenderObject();
+    if (info == null ||
+        _lastException != null ||
+        box is! RenderBox ||
+        !box.hasSize) {
+      return const [];
+    }
+    final pixels = Size(
+      info.image.width / info.scale,
+      info.image.height / info.scale,
+    );
+    final split = widget.splitWideImage && shouldSplitWideImage(pixels);
+    final display = split ? splitWideImageDisplaySize(pixels) : pixels;
+    final fitted = applyBoxFit(
+      widget.fit ?? BoxFit.scaleDown,
+      display,
+      box.size,
+    );
+    final destination = widget.alignment
+        .resolve(Directionality.of(context))
+        .inscribe(fitted.destination, Offset.zero & box.size);
+    if (!split) {
+      return [
+        (source: const Rect.fromLTWH(0, 0, 1, 1), destination: destination),
+      ];
+    }
+    return [
+      for (final slice in splitWideImageSlices(
+        invert:
+            widget.splitWideImageInvert ^
+            (widget.matchTextDirection &&
+                Directionality.of(context) == TextDirection.rtl),
+      ))
+        (
+          source: Rect.fromLTWH(slice.sourceLeft, 0, slice.sourceWidth, 1),
+          destination: Rect.fromLTWH(
+            destination.left,
+            destination.top + destination.height * slice.displayTop,
+            destination.width,
+            destination.height * slice.displayHeight,
+          ),
+        ),
+    ];
+  }
+
+  /// A single affine image has one paint rectangle; split images have two.
+  Rect? get imagePaintBounds {
+    final slices = imagePaintSlices;
+    return slices.length == 1 ? slices.single.destination : null;
+  }
 
   bool get readyForAutoReading =>
       autoReadingImageState == AutoReadingImageState.ready;
@@ -248,6 +328,7 @@ class ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
           setState(() {
             _lastException = error;
           });
+          widget.onImageChanged?.call();
         },
       );
     }
@@ -262,6 +343,7 @@ class ComicImageState extends State<ComicImage> with WidgetsBindingObserver {
       _frameNumber = _frameNumber == null ? 0 : _frameNumber! + 1;
       _wasSynchronouslyLoaded = _wasSynchronouslyLoaded | synchronousCall;
     });
+    widget.onImageChanged?.call();
   }
 
   void _handleImageChunk(ImageChunkEvent event) {

@@ -3,6 +3,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'annotation_workspace.dart';
+import 'annotation_layer.dart';
+import 'package:venera_next/features/annotations/annotations.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -56,8 +59,19 @@ class ReaderContinuousView extends StatefulWidget {
     required this.onNavigationError,
     required this.readerSize,
     required this.readImage,
+    this.annotations,
+    this.annotationSelectionRequests,
+    this.onAnnotationInputChanged,
+    this.onExportAnnotations,
+    this.onOpenAnnotations,
+    this.annotationTargetCurrent,
   });
 
+  final AnnotationSession? annotations;
+  final Listenable? annotationSelectionRequests;
+  final ValueChanged<bool>? onAnnotationInputChanged;
+  final VoidCallback? onExportAnnotations, onOpenAnnotations;
+  final bool Function()? annotationTargetCurrent;
   final ReaderContinuousData data;
   final ImageWork imageWork;
   final ReaderController navigation;
@@ -103,6 +117,9 @@ class ContinuousModeState extends State<ReaderContinuousView>
   bool _positionUpdateScheduled = false;
   ScrollController? _scrollController;
   bool _disposed = false;
+  final _annotationGeometry = ValueNotifier(0);
+  final _annotationContextMenus = AnnotationContextMenuController();
+  bool _annotationInteracting = false, _annotationsVisible = true;
   Timer? _initialCacheTimer;
   Timer? _scrollActivityTimer;
   ScrollPosition? _smoothPosition;
@@ -414,6 +431,7 @@ class ContinuousModeState extends State<ReaderContinuousView>
     itemPositionsListener.itemPositions.removeListener(onPositionChanged);
     unawaited(_photoPositionSubscription?.cancel());
     photoViewController.dispose();
+    _annotationGeometry.dispose();
     super.dispose();
   }
 
@@ -497,6 +515,12 @@ class ContinuousModeState extends State<ReaderContinuousView>
   }
 
   void onPositionChanged() {
+    if (_disposed || !mounted) return;
+    _updateCurrentImagePosition();
+    if (widget.annotations != null) _annotationGeometry.value++;
+  }
+
+  void _updateCurrentImagePosition() {
     if (_disposed || !mounted) return;
     final viewport = context.findRenderObject();
     if (viewport is! RenderBox || !viewport.attached || !viewport.hasSize) {
@@ -943,11 +967,17 @@ class ContinuousModeState extends State<ReaderContinuousView>
             showImageDimensions: data.showImageDimensions,
             onInit: (state) => imageStates.add(state),
             onDispose: (state) => imageStates.remove(state),
+            onImageChanged: this.widget.annotations == null
+                ? null
+                : _schedulePositionUpdate,
           ),
         );
 
         return ColoredBox(
-          color: context.colorScheme.surface,
+          color: ReaderCanvasPalette.backgroundOf(
+            context,
+            context.colorScheme.surface,
+          ),
           child: data.vertical
               ? Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1120,8 +1150,13 @@ class ContinuousModeState extends State<ReaderContinuousView>
       width *= 1 - percent * 2 / 100;
     }
 
-    return PhotoView.customChild(
-      backgroundDecoration: BoxDecoration(color: context.colorScheme.surface),
+    final canvas = PhotoView.customChild(
+      backgroundDecoration: BoxDecoration(
+        color: ReaderCanvasPalette.backgroundOf(
+          context,
+          context.colorScheme.surface,
+        ),
+      ),
       childSize: Size(width, height),
       minScale: 1.0,
       maxScale: 2.5,
@@ -1130,6 +1165,231 @@ class ContinuousModeState extends State<ReaderContinuousView>
       onScaleUpdate: onScaleUpdate,
       child: SizedBox(width: width, height: height, child: widget),
     );
+    if (this.widget.annotations == null) return canvas;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        AbsorbPointer(absorbing: _annotationInteracting, child: canvas),
+        Positioned.fill(
+          child: ValueListenableBuilder<int>(
+            valueListenable: _annotationGeometry,
+            builder: (context, _, _) => _buildAnnotations(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Iterable<ComicImageState> _annotationImages() sync* {
+    final controller = _scrollController;
+    if (controller == null || !controller.hasClients) return;
+    for (final state in imageStates.whereType<ComicImageState>()) {
+      if (!state.imageLayoutActive || state.originalImageSize == null) continue;
+      final scrollable = state.context
+          .findAncestorStateOfType<ScrollableState>();
+      final provider = state.widget.image;
+      if (scrollable == null ||
+          !controller.positions.contains(scrollable.position) ||
+          provider is! ReaderDisplayImageProvider ||
+          provider.image.cid != data.comicId ||
+          provider.image.sourceKey != data.sourceKey) {
+        continue;
+      }
+      yield state;
+    }
+  }
+
+  List<({ViewportTransform transform, Rect clip})> _annotationViewports(
+    ComicImageState state,
+  ) {
+    if (!state.imageLayoutActive) return const [];
+    final box = state.context.findRenderObject();
+    final viewport = context.findRenderObject();
+    if (box is! RenderBox ||
+        viewport is! RenderBox ||
+        !box.attached ||
+        !viewport.attached ||
+        !box.hasSize ||
+        !viewport.hasSize) {
+      return const [];
+    }
+    final RenderObject? listViewport = RenderAbstractViewport.maybeOf(box);
+    if (listViewport is! RenderBox || !listViewport.hasSize) return const [];
+    final matrix = box.getTransformTo(viewport);
+    final viewportClip = MatrixUtils.transformRect(
+      listViewport.getTransformTo(viewport),
+      Offset.zero & listViewport.size,
+    ).intersect(Offset.zero & viewport.size);
+    final result = <({ViewportTransform transform, Rect clip})>[];
+    for (final slice in state.imagePaintSlices) {
+      final paint = slice.destination, source = slice.source;
+      if (paint.isEmpty || source.isEmpty) continue;
+      final fullWidth = paint.width / source.width;
+      final fullHeight = paint.height / source.height;
+      final localOrigin =
+          paint.topLeft -
+          Offset(source.left * fullWidth, source.top * fullHeight);
+      final origin = MatrixUtils.transformPoint(matrix, localOrigin);
+      final horizontal = MatrixUtils.transformPoint(
+        matrix,
+        localOrigin + Offset(fullWidth, 0),
+      );
+      final vertical = MatrixUtils.transformPoint(
+        matrix,
+        localOrigin + Offset(0, fullHeight),
+      );
+      final clip = MatrixUtils.transformRect(
+        matrix,
+        paint,
+      ).intersect(viewportClip);
+      if (!clip.isFinite || clip.isEmpty) continue;
+      try {
+        result.add((
+          transform: ViewportTransform(
+            horizontal.dx - origin.dx,
+            horizontal.dy - origin.dy,
+            vertical.dx - origin.dx,
+            vertical.dy - origin.dy,
+            origin.dx,
+            origin.dy,
+          ),
+          clip: clip,
+        ));
+      } on ArgumentError {
+        continue;
+      }
+    }
+    return result;
+  }
+
+  void _annotationInputChanged(bool active) {
+    _annotationInteracting = active;
+    widget.onAnnotationInputChanged?.call(active);
+    void rebuild() {
+      if (mounted && !_disposed) setState(() {});
+    }
+
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) => rebuild());
+    } else {
+      rebuild();
+    }
+  }
+
+  Widget _buildAnnotations() {
+    final session = widget.annotations;
+    if (session == null || _disposed) return const SizedBox.shrink();
+    final states = _annotationImages().toList();
+    final current = states.where((state) {
+      final provider = (state.widget.image as ReaderDisplayImageProvider).image;
+      return provider.eid == widget.chapterId(currentChapter) &&
+          provider.page == currentPage;
+    }).firstOrNull;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        for (final state in states.where((state) => !identical(state, current)))
+          for (final geometry in _annotationViewports(state))
+            _passiveAnnotations(state, session, geometry),
+        if (current != null)
+          ReaderAnnotationLayer(
+            key: ValueKey((
+              session.documentId,
+              (current.widget.image as ReaderDisplayImageProvider).image.eid,
+              (current.widget.image as ReaderDisplayImageProvider)
+                  .image
+                  .imageKey,
+            )),
+            image: current.widget.image,
+            contextMenus: _annotationContextMenus,
+            photo: photoViewController,
+            session: session,
+            chapterId:
+                (current.widget.image as ReaderDisplayImageProvider).image.eid,
+            imageNumber:
+                (current.widget.image as ReaderDisplayImageProvider).image.page,
+            sourceIdentity: (current.widget.image as ReaderDisplayImageProvider)
+                .image
+                .imageKey,
+            geometryBuilder: (_, _) =>
+                _annotationViewports(current).firstOrNull,
+            additionalGeometries: () =>
+                _annotationViewports(current).skip(1).toList(),
+            visible: _annotationsVisible,
+            onVisibilityChanged: (visible) =>
+                setState(() => _annotationsVisible = visible),
+            selectionRequests: widget.annotationSelectionRequests,
+            onExport: widget.onExportAnnotations,
+            onOpenInspector: widget.onOpenAnnotations,
+            isCurrent: () =>
+                mounted &&
+                !_disposed &&
+                identical(widget.annotations, session) &&
+                current.mounted &&
+                _annotationImages().contains(current) &&
+                (widget.annotationTargetCurrent?.call() ?? true) &&
+                (current.widget.image as ReaderDisplayImageProvider)
+                        .image
+                        .eid ==
+                    widget.chapterId(currentChapter) &&
+                (current.widget.image as ReaderDisplayImageProvider)
+                        .image
+                        .page ==
+                    currentPage,
+            onInputChanged: _annotationInputChanged,
+            child: const SizedBox.expand(),
+          ),
+      ],
+    );
+  }
+
+  Widget _passiveAnnotations(
+    ComicImageState state,
+    AnnotationSession session,
+    ({ViewportTransform transform, Rect clip}) geometry,
+  ) {
+    final provider = (state.widget.image as ReaderDisplayImageProvider).image;
+    final size = state.originalImageSize!;
+    final expectedChapter = currentChapter, expectedPage = currentPage;
+    bool targetCurrent() =>
+        mounted &&
+        !_disposed &&
+        identical(widget.annotations, session) &&
+        state.imageLayoutActive &&
+        currentChapter == expectedChapter &&
+        currentPage == expectedPage &&
+        _annotationImages().contains(state) &&
+        _annotationViewports(state).isNotEmpty &&
+        (widget.annotationTargetCurrent?.call() ?? true);
+    try {
+      final page = session.anchor(
+        chapterId: provider.eid,
+        imageNumber: provider.page,
+        width: size.width,
+        height: size.height,
+        sourceIdentity: provider.imageKey,
+      );
+      return ClipRect(
+        clipper: _ContinuousAnnotationClip(geometry.clip),
+        child: AnnotationOverlay(
+          page: page,
+          transform: geometry.transform,
+          annotations: session.forPage(page),
+          selecting: false,
+          visible: _annotationsVisible,
+          selectedId: session.selectedId,
+          onContextMenu: (note, position) => _annotationContextMenus.show(
+            note,
+            position,
+            isCurrent: targetCurrent,
+          ),
+          onSelected: (_, _) {},
+        ),
+      );
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
   }
 
   Widget buildBackground(BuildContext context) {
@@ -1345,4 +1605,14 @@ class ContinuousModeState extends State<ReaderContinuousView>
     }
     return null;
   }
+}
+
+class _ContinuousAnnotationClip extends CustomClipper<Rect> {
+  const _ContinuousAnnotationClip(this.clip);
+  final Rect clip;
+  @override
+  Rect getClip(Size size) => clip.intersect(Offset.zero & size);
+  @override
+  bool shouldReclip(_ContinuousAnnotationClip oldClipper) =>
+      oldClipper.clip != clip;
 }

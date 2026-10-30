@@ -8,6 +8,7 @@ import 'package:venera_next/features/local_comics/local.dart';
 import 'package:venera_next/features/local_comics/local_storage_guard.dart';
 import 'package:venera_next/foundation/app.dart';
 import 'package:venera_next/foundation/file_system.dart';
+import 'package:venera_next/foundation/comic_source_provenance.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -73,7 +74,15 @@ void main() {
       await exclusive;
       final comic = await registering.future;
       final output = Directory('${manager.path}/${comic.directory}');
-      expect(output.listSync().whereType<File>(), hasLength(2));
+      expect(
+        output.listSync().whereType<File>().map((file) => file.name).toSet(),
+        {
+          '0001.jpg',
+          'cover.jpg',
+          if (const bool.fromEnvironment('COMICNOTES_POC'))
+            ComicSourceProvenance.filename,
+        },
+      );
       await expectLater(
         manager.runWithExclusiveStorage(() async {}),
         throwsA(isA<LocalComicStorageBusy>()),

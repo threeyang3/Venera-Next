@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'annotation_workspace.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/scheduler.dart';
+import 'reader_tap_scope.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:venera_next/components/loading.dart';
 import 'package:venera_next/features/reader/image_downloads.dart';
@@ -18,6 +21,8 @@ import 'image_dimensions.dart';
 import 'image_position.dart';
 import 'reader_controller.dart';
 import 'reader_viewport.dart';
+import 'annotation_layer.dart';
+import 'package:venera_next/features/annotations/annotations.dart';
 
 class ReaderGalleryView extends StatefulWidget {
   const ReaderGalleryView({
@@ -33,6 +38,12 @@ class ReaderGalleryView extends StatefulWidget {
     required this.readerSize,
     required this.readImage,
     this.commentsBuilder,
+    this.annotations,
+    this.onAnnotationInputChanged,
+    this.annotationTargetCurrent,
+    this.onExportAnnotations,
+    this.onOpenAnnotations,
+    this.annotationSelectionRequests,
   });
 
   final ReaderGalleryData data;
@@ -47,6 +58,12 @@ class ReaderGalleryView extends StatefulWidget {
   final Size Function() readerSize;
   final Future<Uint8List?> Function(ReaderImageAddress image) readImage;
   final WidgetBuilder? commentsBuilder;
+  final AnnotationSession? annotations;
+  final ValueChanged<bool>? onAnnotationInputChanged;
+  final bool Function()? annotationTargetCurrent;
+  final VoidCallback? onExportAnnotations;
+  final VoidCallback? onOpenAnnotations;
+  final Listenable? annotationSelectionRequests;
 
   @override
   State<ReaderGalleryView> createState() => GalleryModeState();
@@ -88,9 +105,25 @@ class GalleryModeState extends State<ReaderGalleryView>
 
   bool isLongPressing = false;
   bool _disposed = false;
+  bool _annotationInteracting = false;
   PhotoViewController? _longPressController;
 
   int fingers = 0;
+
+  void _annotationInputChanged(bool active) {
+    _annotationInteracting = active;
+    widget.onAnnotationInputChanged?.call(active);
+    void rebuild() {
+      if (mounted && !_disposed) setState(() {});
+    }
+
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => rebuild());
+    } else {
+      rebuild();
+    }
+  }
 
   @override
   void initState() {
@@ -266,6 +299,9 @@ class GalleryModeState extends State<ReaderGalleryView>
       child: PhotoViewGestureDetectorScope(
         axis: data.vertical ? Axis.vertical : Axis.horizontal,
         child: PageView.builder(
+          physics: _annotationInteracting
+              ? const NeverScrollableScrollPhysics()
+              : null,
           reverse: data.reverse,
           scrollDirection: data.vertical ? Axis.vertical : Axis.horizontal,
           itemCount: totalPages + 2,
@@ -320,7 +356,12 @@ class GalleryModeState extends State<ReaderGalleryView>
   }
 
   Widget _buildPhotoPage(BuildContext context, int index) {
-    final decoration = BoxDecoration(color: context.colorScheme.surface);
+    final decoration = BoxDecoration(
+      color: ReaderCanvasPalette.backgroundOf(
+        context,
+        context.colorScheme.surface,
+      ),
+    );
     if (index == 0 || index == totalPages + 1) {
       return ClipRect(
         child: PhotoView.customChild(
@@ -381,7 +422,8 @@ class GalleryModeState extends State<ReaderGalleryView>
               },
             ),
           );
-          return data.showImageDimensions || data.observeImageReadiness
+          final session = widget.annotations;
+          final child = data.showImageDimensions || data.observeImageReadiness
               ? ReaderImageDimensions(
                   image: image,
                   showDimensions: data.showImageDimensions,
@@ -396,14 +438,63 @@ class GalleryModeState extends State<ReaderGalleryView>
                   builder: photo,
                 )
               : photo();
+          if (session == null) {
+            return child;
+          }
+          return ReaderAnnotationLayer(
+            key: ValueKey((session.documentId, data.chapterId, images[0])),
+            image: image,
+            photo: controller,
+            session: session,
+            onExport: widget.onExportAnnotations,
+            onOpenInspector: widget.onOpenAnnotations,
+            selectionRequests: widget.annotationSelectionRequests,
+            chapterId: data.chapterId,
+            imageNumber: images[0] + 1,
+            sourceIdentity: data.images[images[0]],
+            active: page == index,
+            isCurrent: () =>
+                mounted &&
+                !_disposed &&
+                page == index &&
+                identical(data.content, originalContent) &&
+                identical(widget.imageWork, originalWork) &&
+                !data.content.isLoading &&
+                (widget.annotationTargetCurrent?.call() ?? true),
+            onInputChanged: _annotationInputChanged,
+            child: child,
+          );
         }
-        return PhotoView.customChild(
+        Widget spread([VoidCallback? onImageChanged]) => PhotoView.customChild(
           backgroundDecoration: decoration,
           childSize: MediaQuery.sizeOf(context),
           controller: controller,
           minScale: PhotoViewComputedScale.contained * 1.0,
           maxScale: PhotoViewComputedScale.covered * 10.0,
-          child: buildPageImages(images),
+          child: buildPageImages(images, onImageChanged: onImageChanged),
+        );
+        final session = widget.annotations;
+        if (session == null) return spread();
+        return _GallerySpreadAnnotations(
+          session: session,
+          photo: controller,
+          chapterId: data.chapterId,
+          images: {for (final image in images) image: data.images[image]},
+          imageStates: imageStates,
+          active: page == index,
+          isCurrent: () =>
+              mounted &&
+              !_disposed &&
+              page == index &&
+              identical(data.content, originalContent) &&
+              identical(widget.imageWork, originalWork) &&
+              !data.content.isLoading &&
+              (widget.annotationTargetCurrent?.call() ?? true),
+          selectionRequests: widget.annotationSelectionRequests,
+          onInputChanged: _annotationInputChanged,
+          onExport: widget.onExportAnnotations,
+          onOpenInspector: widget.onOpenAnnotations,
+          builder: spread,
         );
       },
     );
@@ -431,7 +522,7 @@ class GalleryModeState extends State<ReaderGalleryView>
     );
   }
 
-  Widget buildPageImages(List<int> images) {
+  Widget buildPageImages(List<int> images, {VoidCallback? onImageChanged}) {
     Axis axis = (data.vertical) ? Axis.vertical : Axis.horizontal;
 
     bool reverse = data.reverse;
@@ -449,6 +540,7 @@ class GalleryModeState extends State<ReaderGalleryView>
             height: double.infinity,
             image: _displayImage(data.images[images[0]]),
             showImageDimensions: data.showImageDimensions,
+            onImageChanged: onImageChanged,
             fit: BoxFit.contain,
             alignment: axis == Axis.vertical
                 ? Alignment.bottomCenter
@@ -463,6 +555,7 @@ class GalleryModeState extends State<ReaderGalleryView>
             height: double.infinity,
             image: _displayImage(data.images[images[1]]),
             showImageDimensions: data.showImageDimensions,
+            onImageChanged: onImageChanged,
             fit: BoxFit.contain,
             alignment: axis == Axis.vertical
                 ? Alignment.topCenter
@@ -479,6 +572,7 @@ class GalleryModeState extends State<ReaderGalleryView>
           child: ComicImage(
             image: imageProvider,
             showImageDimensions: data.showImageDimensions,
+            onImageChanged: onImageChanged,
             fit: BoxFit.contain,
             onInit: (state) => imageStates[state] = imageIndex,
             onDispose: (state) => imageStates.remove(state),
@@ -714,4 +808,226 @@ class _GalleryPhotoPageState extends State<_GalleryPhotoPage> {
     controller.dispose();
     super.dispose();
   }
+}
+
+/// Per-original geometry around the shared spread canvas. Controls live outside
+/// PhotoView so their size and hit targets do not scale with the images.
+class _GallerySpreadAnnotations extends StatefulWidget {
+  const _GallerySpreadAnnotations({
+    required this.session,
+    required this.photo,
+    required this.chapterId,
+    required this.images,
+    required this.imageStates,
+    required this.active,
+    required this.isCurrent,
+    required this.onInputChanged,
+    required this.builder,
+    this.selectionRequests,
+    this.onExport,
+    this.onOpenInspector,
+  });
+  final AnnotationSession session;
+  final PhotoViewController photo;
+  final String chapterId;
+  final Map<int, String> images;
+  final Map<State<ComicImage>, int> imageStates;
+  final bool active;
+  final bool Function() isCurrent;
+  final ValueChanged<bool> onInputChanged;
+  final Widget Function([VoidCallback? onImageChanged]) builder;
+  final Listenable? selectionRequests;
+  final VoidCallback? onExport, onOpenInspector;
+  @override
+  State<_GallerySpreadAnnotations> createState() =>
+      _GallerySpreadAnnotationsState();
+}
+
+class _GallerySpreadAnnotationsState extends State<_GallerySpreadAnnotations> {
+  late int _selected = widget.images.keys.first;
+  bool _input = false, _visible = true, _scheduled = false;
+  Size? _viewportSize;
+  StreamSubscription<PhotoViewControllerValue>? _subscription;
+  @override
+  void initState() {
+    super.initState();
+    _listen();
+    _scheduleGeometry();
+  }
+
+  void _listen() {
+    _subscription = widget.photo.outputStateStream.listen(
+      (_) => _scheduleGeometry(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _GallerySpreadAnnotations oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.photo, widget.photo)) {
+      _subscription?.cancel();
+      _listen();
+    }
+    if (!widget.images.containsKey(_selected)) {
+      _selected = widget.images.keys.first;
+    }
+    _scheduleGeometry();
+  }
+
+  void _scheduleGeometry() {
+    if (!mounted || _scheduled) return;
+    _scheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      if (mounted) setState(() {});
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  ({ViewportTransform transform, Rect clip})? _geometry(ComicImageState state) {
+    if (!mounted || !state.imageLayoutActive) return null;
+    final viewport = context.findRenderObject();
+    final image = state.context.findRenderObject();
+    final paint = state.imagePaintBounds;
+    if (viewport is! RenderBox ||
+        image is! RenderBox ||
+        !viewport.attached ||
+        !image.attached ||
+        !viewport.hasSize ||
+        !image.hasSize ||
+        paint == null ||
+        paint.isEmpty) {
+      return null;
+    }
+    final matrix = image.getTransformTo(viewport);
+    final origin = MatrixUtils.transformPoint(matrix, paint.topLeft);
+    final horizontal = MatrixUtils.transformPoint(matrix, paint.topRight);
+    final vertical = MatrixUtils.transformPoint(matrix, paint.bottomLeft);
+    final clip = MatrixUtils.transformRect(
+      matrix,
+      paint,
+    ).intersect(Offset.zero & viewport.size);
+    if (!clip.isFinite || clip.isEmpty) return null;
+    try {
+      return (
+        transform: ViewportTransform(
+          horizontal.dx - origin.dx,
+          horizontal.dy - origin.dy,
+          vertical.dx - origin.dx,
+          vertical.dy - origin.dy,
+          origin.dx,
+          origin.dy,
+        ),
+        clip: clip,
+      );
+    } on ArgumentError {
+      return null;
+    }
+  }
+
+  void _onInput(bool active) {
+    _input = active;
+    widget.onInputChanged(active);
+    _scheduleGeometry();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (_viewportSize != constraints.biggest) {
+        _viewportSize = constraints.biggest;
+        _scheduleGeometry();
+      }
+      final states = <int, ComicImageState>{};
+      for (final entry in widget.imageStates.entries) {
+        final state = entry.key;
+        final provider = state.widget.image;
+        if (state is ComicImageState &&
+            state.imageLayoutActive &&
+            provider is ReaderDisplayImageProvider &&
+            provider.image.imageKey == widget.images[entry.value] &&
+            state.originalImageSize != null) {
+          states[entry.value] = state;
+        }
+      }
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          AbsorbPointer(
+            absorbing: _input,
+            child: widget.builder(_scheduleGeometry),
+          ),
+          for (final entry in states.entries)
+            ReaderAnnotationLayer(
+              key: ValueKey((
+                widget.session.documentId,
+                widget.chapterId,
+                entry.key,
+              )),
+              image: entry.value.widget.image,
+              photo: widget.photo,
+              session: widget.session,
+              chapterId: widget.chapterId,
+              imageNumber: entry.key + 1,
+              sourceIdentity: widget.images[entry.key],
+              active: widget.active && entry.key == _selected,
+              isCurrent: () =>
+                  mounted &&
+                  widget.isCurrent() &&
+                  entry.key == _selected &&
+                  entry.value.imageLayoutActive &&
+                  widget.imageStates[entry.value] == entry.key,
+              isContextCurrent: () =>
+                  mounted &&
+                  widget.isCurrent() &&
+                  entry.value.imageLayoutActive &&
+                  widget.imageStates[entry.value] == entry.key,
+              geometryBuilder: (_, _) => _geometry(entry.value),
+              visible: _visible,
+              onVisibilityChanged: (visible) =>
+                  setState(() => _visible = visible),
+              selectionRequests: widget.selectionRequests,
+              onInputChanged: _onInput,
+              onExport: widget.onExport,
+              onOpenInspector: widget.onOpenInspector,
+              child: const SizedBox.expand(),
+            ),
+          if (widget.active)
+            Positioned(
+              top: 16,
+              left: 16,
+              right: 16,
+              child: Listener(
+                onPointerDown: (_) =>
+                    ReaderTapScope.maybeOf(context)?.ignoreNextTap(),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final image in widget.images.keys)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text('批注原图 ${image + 1}'),
+                            selected: image == _selected,
+                            onSelected: _input
+                                ? null
+                                : (_) => setState(() => _selected = image),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
 }

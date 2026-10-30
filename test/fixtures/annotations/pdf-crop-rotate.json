@@ -1,0 +1,114 @@
+[
+  {
+    "mediaBox": [
+      -40,
+      -20,
+      380,
+      540
+    ],
+    "cropBox": [
+      40,
+      80,
+      280,
+      400
+    ],
+    "effectiveBox": [
+      40,
+      80,
+      280,
+      400
+    ],
+    "rotation": 0,
+    "widthPoints": 240,
+    "heightPoints": 320,
+    "topLeftRgb": [
+      1,
+      0,
+      0
+    ]
+  },
+  {
+    "mediaBox": [
+      -40,
+      -20,
+      380,
+      540
+    ],
+    "cropBox": [
+      40,
+      80,
+      280,
+      400
+    ],
+    "effectiveBox": [
+      40,
+      80,
+      280,
+      400
+    ],
+    "rotation": 90,
+    "widthPoints": 320,
+    "heightPoints": 240,
+    "topLeftRgb": [
+      0,
+      0,
+      1
+    ]
+  },
+  {
+    "mediaBox": [
+      -40,
+      -20,
+      380,
+      540
+    ],
+    "cropBox": [
+      40,
+      80,
+      280,
+      400
+    ],
+    "effectiveBox": [
+      40,
+      80,
+      280,
+      400
+    ],
+    "rotation": 180,
+    "widthPoints": 240,
+    "heightPoints": 320,
+    "topLeftRgb": [
+      1,
+      1,
+      0
+    ]
+  },
+  {
+    "mediaBox": [
+      -40,
+      -20,
+      380,
+      540
+    ],
+    "cropBox": [
+      40,
+      80,
+      280,
+      400
+    ],
+    "effectiveBox": [
+      40,
+      80,
+      280,
+      400
+    ],
+    "rotation": 270,
+    "widthPoints": 320,
+    "heightPoints": 240,
+    "topLeftRgb": [
+      0,
+      1,
+      0
+    ]
+  }
+]

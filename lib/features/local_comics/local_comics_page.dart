@@ -2,6 +2,9 @@ import 'import_export/comic_export_service.dart';
 import 'package:venera_next/components/window_selection_task.dart';
 import 'package:venera_next/foundation/selection_operation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart'
+    show CupertinoIcons, CupertinoSlidingSegmentedControl;
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:venera_next/routing/local_reading.dart';
 import 'package:venera_next/components/appbar.dart';
@@ -29,7 +32,15 @@ import 'package:zip_flutter/zip_flutter.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 class LocalComicsPage extends StatefulWidget {
-  const LocalComicsPage({super.key});
+  const LocalComicsPage({
+    super.key,
+    this.libraryRoot = false,
+    this.tagFilter,
+    this.onImport,
+  });
+  final bool libraryRoot;
+  final String? tagFilter;
+  final VoidCallback? onImport;
 
   @override
   State<LocalComicsPage> createState() => _LocalComicsPageState();
@@ -43,6 +54,45 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
   String keyword = "";
 
   bool searchMode = false;
+  bool _galleryView = true;
+  int _viewSaveRevision = 0;
+  Future<void> _setGalleryView(bool value) async {
+    if (_galleryView == value) return;
+    setState(() => _galleryView = value);
+    final revision = ++_viewSaveRevision;
+    try {
+      await appdata.updateImplicit((draft) {
+        draft['mac_library_view'] = value ? 'gallery' : 'list';
+      });
+    } catch (error, stack) {
+      Log.error('Local library view', error, stack);
+      if (mounted && revision == _viewSaveRevision) {
+        context.showMessage(message: '视图已切换，但未能记住选择。请稍后重新切换以重试。');
+      }
+    }
+  }
+
+  final _searchText = TextEditingController();
+  final _searchFocus = FocusNode(debugLabel: 'Local library search');
+  void _openSearch() {
+    if (!mounted ||
+        multiSelectMode ||
+        ModalRoute.of(context)?.isCurrent == false) {
+      return;
+    }
+    setState(() => searchMode = !widget.libraryRoot);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && (searchMode || widget.libraryRoot)) {
+        _searchFocus.requestFocus();
+        if (widget.libraryRoot) {
+          _searchText.selection = TextSelection(
+            baseOffset: 0,
+            extentOffset: _searchText.text.length,
+          );
+        }
+      }
+    });
+  }
 
   bool multiSelectMode = false;
 
@@ -52,19 +102,41 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
     if (keyword.isEmpty) {
       setState(() {
         comics = LocalManager().getComics(sortType);
+        _applyTag();
       });
     } else {
       setState(() {
         comics = LocalManager().search(keyword);
+        _applyTag();
       });
+    }
+  }
+
+  void _applyTag() {
+    if (widget.tagFilter case final tag?) {
+      comics = comics.where((comic) => comic.tags.contains(tag)).toList();
+    }
+  }
+
+  @override
+  void didUpdateWidget(LocalComicsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tagFilter != widget.tagFilter) {
+      multiSelectMode = false;
+      selectedComics.clear();
+      update();
     }
   }
 
   @override
   void initState() {
+    if (widget.libraryRoot) {
+      _galleryView = appdata.implicitData['mac_library_view'] != 'list';
+    }
     var sort = appdata.implicitData["local_sort"] ?? "name";
     sortType = LocalSortType.fromString(sort);
     comics = LocalManager().getComics(sortType);
+    _applyTag();
     LocalManager().addListener(update);
     super.initState();
   }
@@ -72,6 +144,8 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
   @override
   void dispose() {
     LocalManager().removeListener(update);
+    _searchFocus.dispose();
+    _searchText.dispose();
     super.dispose();
   }
 
@@ -241,21 +315,33 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
     ];
 
     List<Widget> normalActions = [
-      const PdfImportTasksButton(),
-      Tooltip(
-        message: "Search".tl,
-        child: IconButton(
-          icon: const Icon(Icons.search),
-          onPressed: () {
-            setState(() {
-              searchMode = true;
-            });
-          },
+      if (widget.onImport != null)
+        IconButton(
+          tooltip: '导入漫画',
+          icon: Icon(
+            widget.libraryRoot ? CupertinoIcons.plus : Icons.add_box_outlined,
+          ),
+          onPressed: widget.onImport,
         ),
-      ),
+      const PdfImportTasksButton(),
+      if (!widget.libraryRoot)
+        Tooltip(
+          message: "Search".tl,
+          child: IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: _openSearch,
+          ),
+        ),
       Tooltip(
         message: "Sort".tl,
-        child: IconButton(icon: const Icon(Icons.sort), onPressed: sort),
+        child: IconButton(
+          icon: Icon(
+            widget.libraryRoot
+                ? CupertinoIcons.line_horizontal_3_decrease
+                : Icons.sort,
+          ),
+          onPressed: sort,
+        ),
       ),
       Tooltip(
         message: "Downloading".tl,
@@ -271,29 +357,182 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
     var body = Scaffold(
       body: SmoothCustomScrollView(
         slivers: [
-          if (!searchMode)
-            SliverAppbar(
-              leading: Tooltip(
-                message: multiSelectMode ? "Cancel".tl : "Back".tl,
-                child: IconButton(
-                  onPressed: () {
-                    if (multiSelectMode) {
-                      setState(() {
-                        multiSelectMode = false;
-                        selectedComics.clear();
-                      });
-                    } else {
-                      context.pop();
-                    }
-                  },
-                  icon: multiSelectMode
-                      ? const Icon(Icons.close)
-                      : const Icon(Icons.arrow_back),
+          if (widget.libraryRoot)
+            SliverToBoxAdapter(
+              child: SafeArea(
+                bottom: false,
+                child: Container(
+                  height: 54,
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    border: Border(
+                      bottom: BorderSide(
+                        color: Theme.of(context).dividerColor,
+                        width: .5,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      if (multiSelectMode) ...[
+                        IconButton(
+                          onPressed: () => setState(() {
+                            multiSelectMode = false;
+                            selectedComics.clear();
+                          }),
+                          icon: const Icon(CupertinoIcons.xmark),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              multiSelectMode
+                                  ? '已选择 ${selectedComics.length} 本'
+                                  : widget.tagFilter ?? '本地书库',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${comics.length} 本漫画',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      if (!multiSelectMode) ...[
+                        SizedBox(
+                          width: (MediaQuery.sizeOf(context).width * .2).clamp(
+                            140,
+                            230,
+                          ),
+                          height: 30,
+                          child: TextField(
+                            controller: _searchText,
+                            focusNode: _searchFocus,
+                            style: const TextStyle(fontSize: 12),
+                            decoration: InputDecoration(
+                              hintText: '搜索书库',
+                              prefixIcon: const Icon(
+                                CupertinoIcons.search,
+                                size: 14,
+                              ),
+                              prefixIconConstraints: const BoxConstraints(
+                                minWidth: 30,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 5,
+                              ),
+                              suffixIcon: keyword.isEmpty
+                                  ? null
+                                  : IconButton(
+                                      tooltip: '清除搜索',
+                                      icon: const Icon(
+                                        CupertinoIcons.xmark_circle_fill,
+                                        size: 13,
+                                      ),
+                                      onPressed: () {
+                                        _searchText.clear();
+                                        keyword = '';
+                                        update();
+                                      },
+                                    ),
+                            ),
+                            onChanged: (value) {
+                              keyword = value;
+                              update();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        CupertinoSlidingSegmentedControl<bool>(
+                          groupValue: _galleryView,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: .06),
+                          thumbColor:
+                              Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xff555555)
+                              : Colors.white,
+                          children: const {
+                            true: Tooltip(
+                              message: '切换封面视图',
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 5),
+                                child: Icon(
+                                  CupertinoIcons.square_grid_2x2,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                            false: Tooltip(
+                              message: '切换列表视图',
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 5),
+                                child: Icon(
+                                  CupertinoIcons.rectangle_grid_1x2,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          },
+                          onValueChanged: (value) {
+                            if (value != null) {
+                              _setGalleryView(value);
+                            }
+                          },
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      ...multiSelectMode ? selectActions : normalActions,
+                    ],
+                  ),
                 ),
               ),
+            )
+          else if (!searchMode)
+            SliverAppbar(
+              leading: widget.libraryRoot && !multiSelectMode
+                  ? null
+                  : Tooltip(
+                      message: multiSelectMode ? "Cancel".tl : "Back".tl,
+                      child: IconButton(
+                        onPressed: () {
+                          if (multiSelectMode) {
+                            setState(() {
+                              multiSelectMode = false;
+                              selectedComics.clear();
+                            });
+                          } else {
+                            context.pop();
+                          }
+                        },
+                        icon: multiSelectMode
+                            ? const Icon(Icons.close)
+                            : const Icon(Icons.arrow_back),
+                      ),
+                    ),
               title: multiSelectMode
                   ? Text(selectedComics.length.toString())
-                  : Text("Local".tl),
+                  : Text(widget.tagFilter ?? "Local".tl),
               actions: multiSelectMode ? selectActions : normalActions,
             )
           else if (searchMode)
@@ -323,6 +562,7 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
               title: multiSelectMode
                   ? Text(selectedComics.length.toString())
                   : TextField(
+                      focusNode: _searchFocus,
                       autofocus: true,
                       decoration: InputDecoration(
                         hintText: "Search".tl,
@@ -335,114 +575,185 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
                     ),
               actions: multiSelectMode ? selectActions : null,
             ),
-          SliverGridComics(
-            comics: comics,
-            selections: selectedComics,
-            onLongPressed: (c, heroID) {
-              setState(() {
-                multiSelectMode = true;
-                selectedComics[c as LocalComic] = true;
-              });
-            },
-            onTap: (c, heroID) {
-              if (multiSelectMode) {
-                setState(() {
-                  if (selectedComics.containsKey(c as LocalComic)) {
-                    selectedComics.remove(c);
-                  } else {
-                    selectedComics[c] = true;
-                  }
-                  if (selectedComics.isEmpty) {
-                    multiSelectMode = false;
-                  }
-                });
-              } else {
-                // prevent dirty data
-                var comic = LocalManager().find(
-                  c.id,
-                  ComicType.fromKey(c.sourceKey),
-                )!;
-                openLocalComic(comic);
-              }
-            },
-            menuBuilder: (c) {
-              return [
-                MenuEntry(
-                  icon: Icons.watch_later_outlined,
-                  text:
-                      LocalFavoritesManager().isInReadLater(
-                        c.id,
-                        (c as LocalComic).comicType,
-                      )
-                      ? 'Remove from read later'.tl
-                      : 'Read later'.tl,
-                  onClick: () async {
-                    final manager = LocalFavoritesManager();
-                    final included = manager.isInReadLater(c.id, c.comicType);
-                    try {
-                      await manager.setReadLater(
-                        FavoriteItem(
-                          id: c.id,
-                          name: c.title,
-                          coverPath: c.cover,
-                          author: c.subtitle,
-                          type: c.comicType,
-                          tags: c.tags,
+          if (widget.libraryRoot && comics.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        keyword.isEmpty
+                            ? CupertinoIcons.book
+                            : CupertinoIcons.search,
+                        size: 40,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurfaceVariant.withValues(alpha: .5),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        keyword.isEmpty ? '开始你的漫画书库' : '没有找到漫画',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
-                        included: !included,
-                        folderName: 'Read later'.tl,
-                      );
-                      if (context.mounted) {
-                        context.showMessage(
-                          message: included
-                              ? 'Removed from read later'.tl
-                              : 'Added to read later'.tl,
-                        );
-                      }
-                    } catch (error) {
-                      if (context.mounted) {
-                        context.showMessage(message: error.toString());
-                      }
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        keyword.isEmpty
+                            ? '导入漫画，阅读时随手记录值得回看的画面。'
+                            : '试试其他书名，或清除搜索。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      if (keyword.isEmpty && widget.onImport != null) ...[
+                        const SizedBox(height: 20),
+                        FilledButton.icon(
+                          onPressed: widget.onImport,
+                          icon: const Icon(CupertinoIcons.plus, size: 14),
+                          label: const Text('导入第一本漫画'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else
+            SliverGridComics(
+              comics: comics,
+              displayMode: widget.libraryRoot
+                  ? (_galleryView
+                        ? ComicTileDisplayMode.gallery
+                        : ComicTileDisplayMode.compactList)
+                  : null,
+              listSubtitleBuilder: widget.libraryRoot
+                  ? (comic) {
+                      final local = comic as LocalComic;
+                      final date = local.createdAt;
+                      return [
+                        if (local.subtitle.trim().isNotEmpty)
+                          local.subtitle.trim(),
+                        if (local.tags.isNotEmpty) local.tags.take(3).join('、'),
+                        '添加于 ${date.year}/${date.month}/${date.day}',
+                      ].join(' · ');
                     }
-                  },
-                ),
-                MenuEntry(
-                  icon: Icons.folder_open,
-                  text: "Open Folder".tl,
-                  onClick: () {
-                    openComicFolder(context, c);
-                  },
-                ),
-                MenuEntry(
-                  icon: Icons.delete,
-                  text: "Delete".tl,
-                  onClick: () {
-                    deleteComics([c]).then((value) {
-                      if (value && multiSelectMode) {
-                        setState(() {
-                          multiSelectMode = false;
-                          selectedComics.clear();
-                        });
+                  : null,
+              galleryColumns: widget.libraryRoot && _galleryView
+                  ? (MediaQuery.sizeOf(context).width ~/ 220).clamp(2, 8)
+                  : null,
+              selections: selectedComics,
+              onLongPressed: (c, heroID) {
+                setState(() {
+                  multiSelectMode = true;
+                  selectedComics[c as LocalComic] = true;
+                });
+              },
+              onTap: (c, heroID) {
+                if (multiSelectMode) {
+                  setState(() {
+                    if (selectedComics.containsKey(c as LocalComic)) {
+                      selectedComics.remove(c);
+                    } else {
+                      selectedComics[c] = true;
+                    }
+                    if (selectedComics.isEmpty) {
+                      multiSelectMode = false;
+                    }
+                  });
+                } else {
+                  // prevent dirty data
+                  var comic = LocalManager().find(
+                    c.id,
+                    ComicType.fromKey(c.sourceKey),
+                  )!;
+                  openLocalComic(comic);
+                }
+              },
+              menuBuilder: (c) {
+                return [
+                  MenuEntry(
+                    icon: Icons.watch_later_outlined,
+                    text:
+                        LocalFavoritesManager().isInReadLater(
+                          c.id,
+                          (c as LocalComic).comicType,
+                        )
+                        ? 'Remove from read later'.tl
+                        : 'Read later'.tl,
+                    onClick: () async {
+                      final manager = LocalFavoritesManager();
+                      final included = manager.isInReadLater(c.id, c.comicType);
+                      try {
+                        await manager.setReadLater(
+                          FavoriteItem(
+                            id: c.id,
+                            name: c.title,
+                            coverPath: c.cover,
+                            author: c.subtitle,
+                            type: c.comicType,
+                            tags: c.tags,
+                          ),
+                          included: !included,
+                          folderName: 'Read later'.tl,
+                        );
+                        if (context.mounted) {
+                          context.showMessage(
+                            message: included
+                                ? 'Removed from read later'.tl
+                                : 'Added to read later'.tl,
+                          );
+                        }
+                      } catch (error) {
+                        if (context.mounted) {
+                          context.showMessage(message: error.toString());
+                        }
                       }
-                    });
-                  },
-                ),
-                MenuEntry(
-                  icon: Icons.cloud_upload_outlined,
-                  text: "Archive to WebDAV".tl,
-                  onClick: () {
-                    archiveComics([c]);
-                  },
-                ),
-                ...exportActions([c]),
-              ];
-            },
-          ),
+                    },
+                  ),
+                  MenuEntry(
+                    icon: Icons.folder_open,
+                    text: "Open Folder".tl,
+                    onClick: () {
+                      openComicFolder(context, c);
+                    },
+                  ),
+                  MenuEntry(
+                    icon: Icons.delete,
+                    text: "Delete".tl,
+                    onClick: () {
+                      deleteComics([c]).then((value) {
+                        if (value && multiSelectMode) {
+                          setState(() {
+                            multiSelectMode = false;
+                            selectedComics.clear();
+                          });
+                        }
+                      });
+                    },
+                  ),
+                  MenuEntry(
+                    icon: Icons.cloud_upload_outlined,
+                    text: "Archive to WebDAV".tl,
+                    onClick: () {
+                      archiveComics([c]);
+                    },
+                  ),
+                  ...exportActions([c]),
+                ];
+              },
+            ),
         ],
       ),
     );
 
-    return PopScope(
+    final page = PopScope(
       canPop: !multiSelectMode && !searchMode,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
@@ -460,6 +771,15 @@ class _LocalComicsPageState extends State<LocalComicsPage> {
         }
       },
       child: body,
+    );
+    if (!widget.libraryRoot) return page;
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyF, meta: true): _openSearch,
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+            _openSearch,
+      },
+      child: Focus(autofocus: true, child: page),
     );
   }
 

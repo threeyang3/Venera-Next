@@ -18,6 +18,7 @@ class MenuRouteController {
     List<MenuEntry> entries, {
     bool Function()? isValid,
     Listenable? changes,
+    VoidCallback? onClosed,
   }) {
     if (_disposed || entries.isEmpty || !NavigationAdmission.allows(context)) {
       return null;
@@ -57,7 +58,7 @@ class MenuRouteController {
         : const Duration(milliseconds: 200);
     close();
     final generation = _generation;
-    final operation = _active = _MenuOperation();
+    final operation = _active = _MenuOperation()..onClosed = onClosed;
     bool alive() => !operation.closed && !_disposed && ownerAlive();
     void check() {
       if (!alive()) _close(operation);
@@ -117,6 +118,9 @@ class MenuRouteController {
     operation.route = null;
     operation.navigator = null;
     if (identical(_active, operation)) _active = null;
+    final onClosed = operation.onClosed;
+    operation.onClosed = null;
+    onClosed?.call();
   }
 
   void _close(_MenuOperation operation) {
@@ -147,6 +151,7 @@ class MenuRouteController {
 }
 
 class _MenuOperation {
+  VoidCallback? onClosed;
   bool closed = false;
   _ContextMenuRoute? route;
   NavigatorState? navigator;

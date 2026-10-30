@@ -176,7 +176,7 @@ Widget _buildUpdateBadge(BuildContext context, {double size = 24}) {
   );
 }
 
-enum ComicTileDisplayMode { detailed, gallery }
+enum ComicTileDisplayMode { detailed, gallery, compactList }
 
 class ComicTile extends StatelessWidget {
   const ComicTile({
@@ -190,6 +190,7 @@ class ComicTile extends StatelessWidget {
     this.onBlocked,
     this.heroID,
     this.displayMode,
+    this.listSubtitle,
   });
 
   final Comic comic;
@@ -209,6 +210,7 @@ class ComicTile extends StatelessWidget {
   final int? heroID;
 
   final ComicTileDisplayMode? displayMode;
+  final String? listSubtitle;
 
   void _onTap() {
     if (onTap != null) {
@@ -291,9 +293,13 @@ class ComicTile extends StatelessWidget {
 
   Widget _build(BuildContext context) {
     final state = _tileState(comic);
+    if (displayMode == ComicTileDisplayMode.compactList) {
+      return _buildCompactList(context, state);
+    }
     final type = switch (displayMode) {
       ComicTileDisplayMode.detailed => 'detailed',
       ComicTileDisplayMode.gallery => 'gallery',
+      ComicTileDisplayMode.compactList => 'list',
       null => GlobalPreferenceStore(
         appdata.settings,
       ).read(DiscoveryPreferences.comicDisplayMode),
@@ -428,6 +434,98 @@ class ComicTile extends StatelessWidget {
       fit: BoxFit.cover,
       width: double.infinity,
       height: double.infinity,
+    );
+  }
+
+  Widget _buildCompactList(BuildContext context, ComicTileState state) {
+    final colors = Theme.of(context).colorScheme;
+    Widget cover = SizedBox(
+      width: 40,
+      height: 58,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: ColoredBox(
+          color: colors.surfaceContainerHighest,
+          child: buildImage(context),
+        ),
+      ),
+    );
+    if (heroID != null) cover = Hero(tag: 'cover$heroID', child: cover);
+    final description = listSubtitle ?? comic.subtitle ?? '';
+    final progress =
+        state.historyCompactDescription ?? state.historyDescription;
+    return ClickInkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: _onTap,
+      onLongPress: enableLongPressed ? () => _onLongPressed(context) : null,
+      onSecondaryTapDown: (details) => onSecondaryTap(details, context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            cover,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    comic.title.replaceAll('\n', ' '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (description.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (progress != null && progress.isNotEmpty) ...[
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  progress,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+            if (state.isFavorite) ...[
+              const SizedBox(width: 12),
+              Icon(
+                Icons.bookmark_border,
+                size: 16,
+                color: colors.onSurfaceVariant,
+              ),
+            ],
+            if (state.hasNewUpdate) ...[
+              const SizedBox(width: 12),
+              Tooltip(
+                message: '有更新',
+                child: Icon(Icons.circle, size: 6, color: colors.primary),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

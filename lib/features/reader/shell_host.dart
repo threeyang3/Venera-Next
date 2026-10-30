@@ -52,6 +52,18 @@ class ReaderShellHost extends StatelessWidget {
       createImageExport: reader.createImageExportRequest,
       createSettings: reader.createSettingsRequest,
       createChapterComments: reader.createChapterCommentsRequest,
+      annotationInspectorBuilder: reader.annotationsEnabled
+          ? (_) => reader.buildAnnotationInspector()
+          : null,
+      annotationWorkspaceEnabled:
+          reader.annotationsEnabled &&
+          App.isMacOS &&
+          const bool.fromEnvironment('COMICNOTES_WORKSPACE'),
+      onCanvasChanged: reader.update,
+      dockedAnnotationInspectorBuilder: reader.annotationsEnabled
+          ? (_, onClose) =>
+                reader.buildAnnotationInspector(onClose: onClose, docked: true)
+          : null,
       child: child!,
     ),
   );

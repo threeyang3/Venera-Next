@@ -1,4 +1,19 @@
+import 'package:venera_next/app_runtime/annotation_manual_recovery.dart';
+import 'package:venera_next/app_shell/import_commands.dart';
+import 'package:venera_next/features/reader/annotation_layer.dart';
+import 'package:venera_next/features/reader/display_image_provider.dart';
 import 'package:venera_next/features/favorites/favorites_scope.dart';
+import 'package:venera_next/features/annotations/annotations.dart';
+import 'package:venera_next/features/annotations/data/annotation_repository.dart';
+import 'package:venera_next/app_runtime/annotations.dart';
+import 'package:venera_next/app_runtime/annotation_export_binding.dart';
+import 'package:venera_next/app_runtime/annotation_navigation.dart';
+import 'package:venera_next/app_runtime/annotation_source_relocation.dart';
+import 'package:venera_next/app_runtime/annotation_recovery.dart';
+import 'package:venera_next/foundation/comic_source_provenance.dart';
+import 'package:venera_next/foundation/annotation_link_contract.dart';
+import 'package:venera_next/routing/app_links.dart';
+import 'package:venera_next/features/reader/reader_session_scope.dart';
 import 'package:venera_next/features/history/history_scope.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -40,7 +55,6 @@ import 'package:venera_next/features/local_comics/local_comics.dart';
 import 'package:venera_next/features/reader/auto_reading.dart';
 import 'package:venera_next/features/reader/comic_image.dart';
 import 'package:venera_next/features/reader/continuous_view.dart';
-import 'package:venera_next/features/reader/display_image_provider.dart';
 import 'package:venera_next/features/reader/platform_effects.dart';
 import 'package:venera_next/features/reader/image_export.dart';
 import 'package:venera_next/features/reader/image_position.dart';
@@ -86,7 +100,7 @@ void main() {
       final icons = FontLoader('MaterialIcons')
         ..addFont(
           File(
-            'build/windows/x64/runner/Release/data/flutter_assets/fonts/MaterialIcons-Regular.otf',
+            'build/unit_test_assets/fonts/MaterialIcons-Regular.otf',
           ).readAsBytes().then(ByteData.sublistView),
         );
       await icons.load();
@@ -105,6 +119,2080 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('window_manager'), null);
   });
+
+  for (final cancel in [false, true]) {
+    testWidgets(
+      'manual recovery UI restores legacy notes onto explicitly chosen Reader source image; cancel=$cancel',
+      (tester) async {
+        final fixture = await _ReaderFixture.create(tester);
+        late Annotation saved;
+        late String documentId;
+        try {
+          await tester.runAsync(() async {
+            final old = AnnotationSession.persistent(
+              AnnotationRepository.open('${App.dataPath}/annotations.db'),
+              libraryKey: 'orphan:manual-preview',
+              title: 'Old manual book',
+              ownsStore: true,
+            );
+            final page = old.anchor(
+              chapterId: 'legacy',
+              imageNumber: 7,
+              width: 100,
+              height: 150,
+              sourceIdentity: 'lost/7.png',
+              assetUri: 'file:///missing/lost/7.png',
+            );
+            saved = old.add(
+              page,
+              AnnotationKind.region,
+              'Legacy composition',
+              rect: ContentRect(.2, .3, .7, .8),
+            );
+            old.setTags(saved.id, ['legacy']);
+            documentId = old.documentId;
+            old.close();
+          });
+          await fixture.mount(
+            tester,
+            pushed: false,
+            withWindow: false,
+            persistentAnnotations: true,
+          );
+          await _pumpUntil(
+            tester,
+            () => find.byTooltip('全书批注').evaluate().isNotEmpty,
+          );
+          final reader = fixture.readerKey.currentState!;
+          final targetId = reader.annotations.documentId;
+          await tester.tap(find.byTooltip('全书批注').first);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('手工逐页关联旧批注'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Old manual book'));
+          await _pumpUntil(
+            tester,
+            () =>
+                find.text('逐页关联旧批注').evaluate().isNotEmpty &&
+                find
+                    .byType(DropdownButtonFormField<String>)
+                    .evaluate()
+                    .isNotEmpty,
+          );
+          expect(reader.annotations.inputActive, isTrue);
+          expect(reader.annotations.documentId, targetId);
+          if (cancel) {
+            void Function()? release;
+            final draining = reader.imageWork.prepareForExit().then(
+              (value) => release = value,
+            );
+            await _pumpUntil(tester, () => release != null);
+            await draining;
+            release!();
+            await tester.pumpAndSettle();
+            expect(find.text('逐页关联旧批注'), findsNothing);
+            expect(reader.annotations.documentId, targetId);
+            expect(reader.annotations.inputActive, isFalse);
+            await tester.runAsync(() async {
+              final store = AnnotationRepository.open(
+                '${App.dataPath}/annotations.db',
+              );
+              try {
+                expect(
+                  store.document(documentId).libraryKey,
+                  'orphan:manual-preview',
+                );
+                expect(store.list(documentId).single.id, saved.id);
+                expect(store.list(targetId), isEmpty);
+              } finally {
+                store.close();
+              }
+            });
+            expect(tester.takeException(), isNull);
+            return;
+          }
+          await tester.tap(find.byType(DropdownButtonFormField<String>));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('one · 2 · one/2.png').last);
+          await tester.pumpAndSettle();
+          final preview = tester
+              .widgetList<AnnotationOverlay>(find.byType(AnnotationOverlay))
+              .singleWhere(
+                (overlay) => overlay.page.pageId == saved.anchor.pageId,
+              );
+          expect(
+            preview.annotations.single.rect!.toJson(),
+            saved.rect!.toJson(),
+          );
+          await tester.ensureVisible(find.byType(Checkbox));
+          await tester.tap(find.byType(Checkbox));
+          await tester.pump();
+          await tester.tap(find.text('确认恢复旧批注'));
+          await _pumpUntil(
+            tester,
+            () => reader.annotations.documentId == documentId,
+          );
+          await _pumpUntil(tester, () => _annotationImagesReady(reader));
+          await tester.pumpAndSettle();
+          final restored = reader.annotations.all.single;
+          expect(restored.id, saved.id);
+          expect(restored.anchor.pageId, saved.anchor.pageId);
+          expect(restored.anchor.chapterId, 'one');
+          expect(restored.anchor.sourceImageNumber, 2);
+          expect(restored.tags, ['legacy']);
+          expect(reader.annotations.inputActive, isFalse);
+          final destination = await tester.runAsync(
+            () => resolveAnnotationLinkDestination(
+              AnnotationLink(documentId: documentId, annotationId: saved.id),
+            ),
+          );
+          expect(destination!.imageNumber, 2);
+          await tester.runAsync(() => reader.jumpToAnnotation(restored));
+          await _pumpUntil(tester, () => reader.page == 2);
+          expect(reader.annotations.selectedId, saved.id);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await fixture.dispose(tester);
+        }
+      },
+      skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+    );
+  }
+
+  testWidgets(
+    'global open reaches actual Reader without losing viewport or modal input',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      try {
+        await tester.runAsync(() => LocalFavoritesManager().init());
+        await fixture.mount(
+          tester,
+          pushed: true,
+          withWindow: false,
+          persistentAnnotations: true,
+          globalImport: true,
+        );
+        await _pumpUntil(
+          tester,
+          () => find.byTooltip('整页笔记').evaluate().length == 1,
+        );
+        final reader = fixture.readerKey.currentState!;
+        final viewport = reader.imageViewController;
+        Future<void> open() async {
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+          await tester.sendKeyEvent(LogicalKeyboardKey.keyO);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+          await tester.pumpAndSettle();
+        }
+
+        reader.focusNode.requestFocus();
+        await tester.pump();
+        await open();
+        expect(find.text('Import Comics'), findsOneWidget);
+        await open();
+        expect(find.text('Import Comics'), findsOneWidget);
+        appNavigation.rootNavigatorKey.currentState!.pop();
+        await tester.pumpAndSettle();
+        expect(fixture.readerKey.currentState, same(reader));
+        expect(reader.imageViewController, same(viewport));
+        expect(reader.page, 1);
+        await tester.tap(find.byTooltip('整页笔记'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Draft remains');
+        await open();
+        expect(find.text('Import Comics'), findsNothing);
+        expect(find.text('Draft remains'), findsOneWidget);
+        expect(reader.annotations.inputActive, isTrue);
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+        expect(reader.annotations.all, isEmpty);
+        expect(reader.annotations.inputActive, isFalse);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await fixture.dispose(tester);
+        await tester.runAsync(() => LocalFavoritesManager().closeAndWait());
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  for (final scenario in [
+    (mode: ReaderMode.galleryLeftToRight, count: 1, target: 1),
+    (mode: ReaderMode.galleryRightToLeft, count: 2, target: 2),
+    (mode: ReaderMode.continuousTopToBottom, count: 1, target: 2),
+    (mode: ReaderMode.waterfallTopToBottom, count: 1, target: 2),
+  ]) {
+    testWidgets(
+      'annotation context menu acts on the clicked original; ${scenario.mode.key}; count=${scenario.count}',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(600, 1400);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPhysicalSize);
+        String? clipboard;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+              if (call.method == 'Clipboard.setData') {
+                clipboard = (call.arguments as Map)['text'] as String;
+              }
+              return null;
+            });
+        final fixture = await _ReaderFixture.create(tester);
+        try {
+          appdata.settings['readerMode'] = scenario.mode.key;
+          appdata.settings['readerScreenPicNumberForLandscape'] =
+              scenario.count;
+          appdata.settings['readerScreenPicNumberForPortrait'] = scenario.count;
+          appdata.settings['showSingleImageOnFirstPage'] = false;
+          appdata.settings['splitDualPage'] = false;
+          await fixture.mount(
+            tester,
+            pushed: false,
+            withWindow: false,
+            persistentAnnotations: true,
+          );
+          await _pumpUntil(
+            tester,
+            () => find.byTooltip('区域批注').evaluate().length == 1,
+          );
+          final reader = fixture.readerKey.currentState!;
+          final anchor = reader.annotations.anchor(
+            chapterId: 'one',
+            imageNumber: scenario.target,
+            width: 100,
+            height: 150,
+            sourceIdentity: reader.images![scenario.target - 1],
+          );
+          final note = reader.annotations.add(
+            anchor,
+            AnnotationKind.region,
+            'Clicked original',
+            rect: ContentRect(.15, .15, .4, .4),
+          );
+          reader.update();
+          await tester.pumpAndSettle();
+          Future<void> openMenu() async {
+            final overlay = tester.widget<AnnotationOverlay>(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is AnnotationOverlay &&
+                    widget.page.pageId == anchor.pageId,
+              ),
+            );
+            final point = overlay.transform.toViewport(ContentPoint(.25, .25));
+            final origin = tester.getTopLeft(
+              find.byWidgetPredicate((widget) => identical(widget, overlay)),
+            );
+            await tester.tapAt(
+              origin + Offset(point.x, point.y),
+              buttons: kSecondaryMouseButton,
+            );
+            await tester.pumpAndSettle();
+            expect(find.text('编辑批注'), findsOneWidget);
+            expect(find.text('Settings'), findsNothing);
+            expect(reader.annotations.inputActive, isTrue);
+          }
+
+          await openMenu();
+          await tester.tapAt(const Offset(20, 20));
+          await tester.pumpAndSettle();
+          expect(find.text('编辑批注'), findsNothing);
+          expect(reader.annotations.inputActive, isFalse);
+          expect(reader.annotations.all.single.id, note.id);
+          await openMenu();
+          await tester.tap(find.text('复制批注文字'));
+          await tester.pumpAndSettle();
+          expect(clipboard, 'Clicked original');
+          expect(reader.annotations.inputActive, isFalse);
+          await openMenu();
+          await tester.tap(find.text('复制批注引用'));
+          await tester.pumpAndSettle();
+          final link = AnnotationLink.parse(Uri.parse(clipboard!))!;
+          expect(link.documentId, reader.annotations.documentId);
+          expect(link.annotationId, note.id);
+          await openMenu();
+          await tester.tap(find.text('编辑批注'));
+          await tester.pumpAndSettle();
+          expect(find.byType(AnnotationEditor), findsOneWidget);
+          await tester.enterText(
+            find.byType(TextField),
+            'Updated clicked original',
+          );
+          await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+          await tester.pumpAndSettle();
+          expect(reader.annotations.all.single.id, note.id);
+          expect(
+            reader.annotations.all.single.anchor.sourceImageNumber,
+            scenario.target,
+          );
+          expect(
+            reader.annotations.all.single.text,
+            'Updated clicked original',
+          );
+          expect(reader.annotations.inputActive, isFalse);
+          if (scenario.target == 1) {
+            final failing = AnnotationRepository.open(
+              '${App.dataPath}/annotations.db',
+            );
+            try {
+              expect(
+                failing.document(reader.annotations.documentId),
+                isNotNull,
+              );
+              failing.db.execute(
+                "CREATE TRIGGER fail_context_delete BEFORE UPDATE ON annotations BEGIN SELECT RAISE(ABORT, 'context delete failed'); END",
+              );
+              await openMenu();
+              await tester.tap(find.text('删除批注'));
+              await tester.pumpAndSettle();
+              expect(find.text('批注操作失败'), findsOneWidget);
+              expect(reader.annotations.all.single.id, note.id);
+              expect(reader.annotations.inputActive, isTrue);
+              await tester.tap(find.text('关闭'));
+              await tester.pumpAndSettle();
+              expect(reader.annotations.inputActive, isFalse);
+            } finally {
+              failing.db.execute('DROP TRIGGER IF EXISTS fail_context_delete');
+              failing.close();
+            }
+          }
+          await openMenu();
+          await tester.tap(find.text('删除批注'));
+          await tester.pumpAndSettle();
+          expect(reader.annotations.all, isEmpty);
+          expect(reader.annotations.inputActive, isFalse);
+          final stored = AnnotationRepository.open(
+            '${App.dataPath}/annotations.db',
+          );
+          try {
+            expect(stored.document(reader.annotations.documentId), isNotNull);
+            expect(stored.list(reader.annotations.documentId), isEmpty);
+          } finally {
+            stored.close();
+          }
+          await tester.tapAt(
+            const Offset(300, 1000),
+            buttons: kSecondaryMouseButton,
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('Settings'), findsOneWidget);
+          expect(find.text('编辑批注'), findsNothing);
+          await tester.tapAt(const Offset(590, 1300));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        } finally {
+          await fixture.dispose(tester);
+        }
+      },
+      skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+    );
+  }
+
+  for (final change in ['page', 'note']) {
+    testWidgets(
+      'annotation context menu rejects retired $change',
+      (tester) async {
+        final fixture = await _ReaderFixture.create(tester);
+        try {
+          await fixture.mount(
+            tester,
+            pushed: false,
+            withWindow: false,
+            persistentAnnotations: true,
+          );
+          await _pumpUntil(
+            tester,
+            () => find.byTooltip('区域批注').evaluate().length == 1,
+          );
+          final reader = fixture.readerKey.currentState!;
+          final overlay = tester.widget<AnnotationOverlay>(
+            find.byType(AnnotationOverlay),
+          );
+          final note = reader.annotations.add(
+            overlay.page,
+            AnnotationKind.region,
+            'Keep original',
+            rect: ContentRect(.2, .2, .6, .6),
+          );
+          reader.update();
+          await tester.pumpAndSettle();
+          final current = tester.widget<AnnotationOverlay>(
+            find.byType(AnnotationOverlay),
+          );
+          final point = current.transform.toViewport(ContentPoint(.4, .4));
+          await tester.tapAt(
+            tester.getTopLeft(find.byType(AnnotationOverlay)) +
+                Offset(point.x, point.y),
+            buttons: kSecondaryMouseButton,
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('删除批注'), findsOneWidget);
+          if (change == 'page') {
+            reader.controller.toPage(2, animated: false);
+          } else {
+            reader.annotations.update(note.id, 'Newer edit');
+            reader.update();
+          }
+          await tester.pumpAndSettle();
+          expect(find.text('删除批注'), findsNothing);
+          expect(
+            reader.annotations.all.single.text,
+            change == 'page' ? 'Keep original' : 'Newer edit',
+          );
+          expect(reader.annotations.inputActive, isFalse);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await fixture.dispose(tester);
+        }
+      },
+      skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+    );
+  }
+
+  for (final mode in [
+    ReaderMode.continuousTopToBottom,
+    ReaderMode.waterfallTopToBottom,
+  ]) {
+    for (final invert in [false, true]) {
+      testWidgets(
+        'split-wide annotations keep one original identity; ${mode.key}; invert=$invert',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = const Size(600, 1000);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          addTearDown(tester.view.resetPhysicalSize);
+          final fixture = await _ReaderFixture.create(tester);
+          try {
+            await tester.runAsync(() async {
+              final wide = img.Image(width: 300, height: 100);
+              img.fillRect(
+                wide,
+                x1: 0,
+                y1: 0,
+                x2: 149,
+                y2: 99,
+                color: img.ColorRgb8(220, 30, 40),
+              );
+              img.fillRect(
+                wide,
+                x1: 150,
+                y1: 0,
+                x2: 299,
+                y2: 99,
+                color: img.ColorRgb8(20, 70, 230),
+              );
+              File(
+                '${LocalManager().path}/book/one/1.png',
+              ).writeAsBytesSync(img.encodePng(wide));
+            });
+            appdata.settings['readerMode'] = mode.key;
+            appdata.settings['splitDualPage'] = true;
+            appdata.settings['splitDualPageInvert'] = invert;
+            await fixture.mount(
+              tester,
+              pushed: false,
+              withWindow: false,
+              persistentAnnotations: true,
+            );
+            await _pumpUntil(
+              tester,
+              () => find.byTooltip('区域批注').evaluate().length == 1,
+            );
+            final reader = fixture.readerKey.currentState!;
+            final flow = reader.imageViewController! as ContinuousModeState;
+            final photo = flow.photoViewController;
+            List<({ViewportTransform transform, Rect clip})> projections() {
+              final layer = tester.widget<ReaderAnnotationLayer>(
+                find.byType(ReaderAnnotationLayer),
+              );
+              return [
+                layer.geometryBuilder!(Size.zero, Size.zero)!,
+                ...layer.additionalGeometries!(),
+              ];
+            }
+
+            for (final right in [false, true]) {
+              await tester.tap(find.byTooltip('区域批注'));
+              await tester.pumpAndSettle();
+              final sourceStart = ContentPoint(right ? .6 : .1, .35);
+              final sourceEnd = ContentPoint(right ? .75 : .25, .65);
+              final projection = projections().singleWhere((projection) {
+                final point = projection.transform.toViewport(sourceStart);
+                return projection.clip.contains(Offset(point.x, point.y));
+              });
+              final p0 = projection.transform.toViewport(sourceStart);
+              final p1 = projection.transform.toViewport(sourceEnd);
+              final finder = find.byWidgetPredicate(
+                (widget) =>
+                    widget is AnnotationOverlay &&
+                    widget.selecting &&
+                    widget.transform.tx == projection.transform.tx &&
+                    widget.transform.ty == projection.transform.ty,
+              );
+              final overlay = tester.widget<AnnotationOverlay>(finder);
+              expect(overlay.page.sourceWidth, 300);
+              expect(overlay.page.sourceHeight, 100);
+              final origin = tester.getTopLeft(finder);
+              await tester.dragFrom(
+                origin + Offset(p0.x, p0.y),
+                Offset(p1.x - p0.x, p1.y - p0.y),
+              );
+              await tester.pumpAndSettle();
+              expect(find.byType(AnnotationEditor), findsOneWidget);
+              await tester.enterText(
+                find.byType(TextField),
+                right ? 'Right original half' : 'Left original half',
+              );
+              await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+              await tester.pumpAndSettle();
+              final note = reader.annotations.all.firstWhere(
+                (note) => note.text.startsWith(right ? 'Right' : 'Left'),
+              );
+              expect(note.rect!.x0, closeTo(sourceStart.x, .01));
+              expect(note.rect!.x1, closeTo(sourceEnd.x, .01));
+              expect(note.rect!.y0, closeTo(.35, .01));
+              expect(note.rect!.y1, closeTo(.65, .01));
+            }
+            expect(reader.annotations.all, hasLength(2));
+            expect(
+              reader.annotations.all.map((note) => note.anchor.pageId).toSet(),
+              hasLength(1),
+            );
+            final state = flow.imageStates
+                .whereType<ComicImageState>()
+                .firstWhere(
+                  (state) =>
+                      (state.widget.image as ReaderDisplayImageProvider)
+                          .image
+                          .page ==
+                      1,
+                );
+            expect(state.imagePaintSlices.first.source.left, invert ? 0 : .5);
+            final boundary = tester.renderObject<RenderRepaintBoundary>(
+              find.byType(RepaintBoundary).first,
+            );
+            final snapshot = await tester.runAsync(() async {
+              final image = await boundary.toImage(pixelRatio: 1);
+              try {
+                final bytes = await image.toByteData(
+                  format: ui.ImageByteFormat.rawRgba,
+                );
+                return (width: image.width, bytes: bytes!.buffer.asUint8List());
+              } finally {
+                image.dispose();
+              }
+            });
+            for (final right in [false, true]) {
+              final source = ContentPoint(right ? .8 : .3, .5);
+              final projection = projections().singleWhere((projection) {
+                final point = projection.transform.toViewport(source);
+                return projection.clip.contains(Offset(point.x, point.y));
+              });
+              final point = projection.transform.toViewport(source);
+              final global =
+                  tester.getTopLeft(find.byType(ReaderContinuousView)) +
+                  Offset(point.x, point.y);
+              final pixel = boundary.globalToLocal(global);
+              final index =
+                  (pixel.dy.floor() * snapshot!.width + pixel.dx.floor()) * 4;
+              final red = snapshot.bytes[index],
+                  blue = snapshot.bytes[index + 2];
+              expect(right ? blue - red : red - blue, greaterThan(150));
+            }
+            await tester.tap(find.byTooltip('区域批注'));
+            await tester.pumpAndSettle();
+            final start = ContentPoint(.6, .35);
+            final beforeFlip = projections().singleWhere((projection) {
+              final point = projection.transform.toViewport(start);
+              return projection.clip.contains(Offset(point.x, point.y));
+            });
+            final startPoint = beforeFlip.transform.toViewport(start);
+            final viewportOrigin = tester.getTopLeft(
+              find.byType(ReaderContinuousView),
+            );
+            final gesture = await tester.startGesture(
+              viewportOrigin + Offset(startPoint.x, startPoint.y),
+            );
+            await gesture.moveBy(const Offset(30, 30));
+            await tester.pump();
+            appdata.settings['splitDualPageInvert'] = !invert;
+            reader.update();
+            await tester.pumpAndSettle();
+            await gesture.up();
+            await tester.pumpAndSettle();
+            expect(find.byType(AnnotationEditor), findsNothing);
+            expect(reader.annotations.all, hasLength(2));
+            await tester.tap(find.byTooltip('取消框选'));
+            await tester.pumpAndSettle();
+            expect(state.imagePaintSlices.first.source.left, invert ? .5 : 0);
+            tester.view.physicalSize = const Size(650, 1100);
+            await tester.pumpAndSettle();
+            photo.updateMultiple(scale: 1.15, position: const Offset(12, -8));
+            await tester.pumpAndSettle();
+            final box = state.context.findRenderObject() as RenderBox;
+            for (final note in reader.annotations.all) {
+              final point = Offset(note.rect!.x0, note.rect!.y0);
+              final slice = state.imagePaintSlices.singleWhere(
+                (slice) => slice.source.contains(point),
+              );
+              final actual = box.localToGlobal(
+                Offset(
+                  slice.destination.left +
+                      (point.dx - slice.source.left) /
+                          slice.source.width *
+                          slice.destination.width,
+                  slice.destination.top + point.dy * slice.destination.height,
+                ),
+              );
+              final projection = projections().singleWhere((projection) {
+                final mapped = projection.transform.toViewport(
+                  ContentPoint(point.dx, point.dy),
+                );
+                return projection.clip.contains(Offset(mapped.x, mapped.y));
+              });
+              final mapped = projection.transform.toViewport(
+                ContentPoint(point.dx, point.dy),
+              );
+              final origin = tester.getTopLeft(
+                find.byType(ReaderContinuousView),
+              );
+              expect(
+                (actual - (origin + Offset(mapped.x, mapped.y))).distance,
+                lessThan(1),
+              );
+            }
+            expect(flow.photoViewController, same(photo));
+            expect(
+              reader.annotations.all.every(
+                (note) => note.anchor.sourceImageNumber == 1,
+              ),
+              isTrue,
+            );
+            expect(tester.takeException(), isNull);
+          } finally {
+            await fixture.dispose(tester);
+          }
+        },
+        skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+      );
+    }
+  }
+
+  testWidgets(
+    'spread annotations keep original picker usable in narrow windows',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final fixture = await _ReaderFixture.create(tester);
+      try {
+        appdata.settings['readerScreenPicNumberForLandscape'] = 3;
+        appdata.settings['readerScreenPicNumberForPortrait'] = 3;
+        appdata.settings['showSingleImageOnFirstPage'] = false;
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+        );
+        await _pumpUntil(
+          tester,
+          () => find.byTooltip('区域批注').evaluate().length == 1,
+        );
+        final picker = find
+            .ancestor(
+              of: find.text('批注原图 3'),
+              matching: find.byType(SingleChildScrollView),
+            )
+            .first;
+        await tester.drag(picker, const Offset(-300, 0));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('批注原图 3'));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widgetList<ReaderAnnotationLayer>(
+                find.byType(ReaderAnnotationLayer),
+              )
+              .singleWhere((layer) => layer.active)
+              .imageNumber,
+          3,
+        );
+        await tester.tap(find.byTooltip('整页笔记'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'Narrow third original');
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(
+          fixture
+              .readerKey
+              .currentState!
+              .annotations
+              .all
+              .single
+              .anchor
+              .sourceImageNumber,
+          3,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  for (final mode in [
+    ReaderMode.galleryLeftToRight,
+    ReaderMode.galleryRightToLeft,
+    ReaderMode.galleryTopToBottom,
+  ]) {
+    for (final count in [2, 3]) {
+      testWidgets(
+        'spread annotations bind each original image; ${mode.key}; count=$count',
+        (tester) async {
+          final fixture = await _ReaderFixture.create(
+            tester,
+            layout: count == 2 ? ComicLayout.longStrip : null,
+          );
+          try {
+            appdata.settings['readerMode'] = mode.key;
+            appdata.settings['readerScreenPicNumberForLandscape'] = count;
+            appdata.settings['readerScreenPicNumberForPortrait'] = count;
+            appdata.settings['showSingleImageOnFirstPage'] = false;
+            await fixture.mount(
+              tester,
+              pushed: false,
+              withWindow: false,
+              persistentAnnotations: true,
+            );
+            await _pumpUntil(
+              tester,
+              () => find.byTooltip('区域批注').evaluate().length == 1,
+            );
+            final reader = fixture.readerKey.currentState!;
+            final gallery = reader.imageViewController! as GalleryModeState;
+            final photo = gallery.photoViewControllers[1]!;
+            for (var image = 1; image <= count; image++) {
+              await tester.tap(find.text('批注原图 $image'));
+              await tester.pumpAndSettle();
+              if (image == 1) {
+                reader.focusNode.requestFocus();
+                await tester.pump();
+                await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+                await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+                await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+                await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+                await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+              } else {
+                await tester.tap(find.byTooltip('区域批注'));
+              }
+              await tester.pumpAndSettle();
+              final positionBefore = gallery.controller.page!;
+              final finder = find.byWidgetPredicate(
+                (widget) => widget is AnnotationOverlay && widget.selecting,
+              );
+              final overlay = tester.widget<AnnotationOverlay>(finder);
+              expect(overlay.page.sourceImageNumber, image);
+              expect(overlay.page.sourceWidth, 100);
+              expect(
+                overlay.page.sourceHeight,
+                count == 2 && image > 1 ? 400 : 150,
+              );
+              final p0 = overlay.transform.toViewport(ContentPoint(.4, .8));
+              final p1 = overlay.transform.toViewport(ContentPoint(.65, .95));
+              await tester.dragFrom(
+                tester.getTopLeft(finder) + Offset(p0.x, p0.y),
+                Offset(p1.x - p0.x, p1.y - p0.y),
+              );
+              await tester.pumpAndSettle();
+              expect(find.byType(AnnotationEditor), findsOneWidget);
+              expect(gallery.controller.page, closeTo(positionBefore, .001));
+              await tester.enterText(find.byType(TextField), 'Original $image');
+              await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+              await tester.pumpAndSettle();
+              final note = reader.annotations.all.firstWhere(
+                (note) => note.text == 'Original $image',
+              );
+              expect(note.anchor.sourceImageNumber, image);
+              expect(note.rect!.x0, closeTo(.4, .01));
+              expect(note.rect!.y0, closeTo(.8, .01));
+              expect(note.rect!.x1, closeTo(.65, .01));
+              expect(note.rect!.y1, closeTo(.95, .01));
+            }
+            expect(
+              reader.annotations.all.map((note) => note.anchor.pageId).toSet(),
+              hasLength(count),
+            );
+            tester.view.devicePixelRatio = 1;
+            tester.view.physicalSize = const Size(1000, 720);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            addTearDown(tester.view.resetPhysicalSize);
+            await tester.pumpAndSettle();
+            photo.updateMultiple(
+              scale: 1.3,
+              position: const Offset(12, -9),
+              rotation: .08,
+            );
+            await tester.pumpAndSettle();
+            for (final note in reader.annotations.all) {
+              final overlay = tester.widget<AnnotationOverlay>(
+                find.byWidgetPredicate(
+                  (widget) =>
+                      widget is AnnotationOverlay &&
+                      widget.page.pageId == note.anchor.pageId,
+                ),
+              );
+              final state =
+                  gallery.imageStates.entries
+                          .firstWhere(
+                            (entry) =>
+                                entry.value ==
+                                note.anchor.sourceImageNumber - 1,
+                          )
+                          .key
+                      as ComicImageState;
+              final box = state.context.findRenderObject() as RenderBox;
+              final paint = state.imagePaintBounds!;
+              final expected = box.localToGlobal(
+                Offset(
+                  paint.left + paint.width * note.rect!.x0,
+                  paint.top + paint.height * note.rect!.y0,
+                ),
+              );
+              final projected = overlay.transform.toViewport(
+                ContentPoint(note.rect!.x0, note.rect!.y0),
+              );
+              final origin = tester.getTopLeft(find.byType(ReaderGalleryView));
+              expect(
+                (expected - (origin + Offset(projected.x, projected.y)))
+                    .distance,
+                lessThan(1),
+              );
+            }
+            expect(reader.imageViewController, same(gallery));
+            expect(gallery.photoViewControllers[1], same(photo));
+            await tester.tap(find.byTooltip('隐藏标注'));
+            await tester.pumpAndSettle();
+            expect(
+              tester
+                  .widgetList<AnnotationOverlay>(find.byType(AnnotationOverlay))
+                  .where(
+                    (overlay) => reader.annotations.all.any(
+                      (note) => note.anchor.pageId == overlay.page.pageId,
+                    ),
+                  )
+                  .every((overlay) => !overlay.visible),
+              isTrue,
+            );
+            if (count == 2) {
+              reader.controller.toPage(2, animated: false);
+              await _pumpUntil(
+                tester,
+                () =>
+                    find.byTooltip('整页笔记').evaluate().length == 1 &&
+                    tester
+                        .widgetList<ReaderAnnotationLayer>(
+                          find.byType(ReaderAnnotationLayer),
+                        )
+                        .any(
+                          (layer) =>
+                              layer.active &&
+                              layer.imageNumber == 3 &&
+                              layer.isCurrent(),
+                        ),
+              );
+              await tester.tap(find.byTooltip('整页笔记'));
+              await tester.pumpAndSettle();
+              await tester.enterText(find.byType(TextField), 'Last singleton');
+              await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+              await tester.pumpAndSettle();
+              expect(
+                reader.annotations.all
+                    .firstWhere((note) => note.text == 'Last singleton')
+                    .anchor
+                    .sourceImageNumber,
+                3,
+              );
+            }
+            expect(tester.takeException(), isNull);
+          } finally {
+            await fixture.dispose(tester);
+          }
+        },
+        skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+      );
+    }
+  }
+
+  for (final mode in [
+    ReaderMode.continuousTopToBottom,
+    ReaderMode.continuousLeftToRight,
+    ReaderMode.continuousRightToLeft,
+    ReaderMode.waterfallTopToBottom,
+  ]) {
+    testWidgets(
+      'continuous annotations use actual image geometry and keep the viewport; ${mode.key}',
+      (tester) async {
+        final fixture = await _ReaderFixture.create(tester);
+        try {
+          appdata.settings['readerMode'] = mode.key;
+          appdata.settings['splitDualPage'] = false;
+          await fixture.mount(
+            tester,
+            pushed: false,
+            withWindow: false,
+            persistentAnnotations: true,
+          );
+          await _pumpUntil(
+            tester,
+            () => find.byTooltip('区域批注').evaluate().length == 1,
+          );
+          final reader = fixture.readerKey.currentState!;
+          final flow = reader.imageViewController! as ContinuousModeState;
+          final originalPhoto = flow.photoViewController;
+          final originalScroll = flow.scrollController;
+          reader.focusNode.requestFocus();
+          await tester.pump();
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+          await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+          await tester.pump();
+          final overlayFinder = find.byWidgetPredicate(
+            (widget) => widget is AnnotationOverlay && widget.selecting,
+          );
+          final overlay = tester.widget<AnnotationOverlay>(overlayFinder);
+          expect(overlay.page.sourceWidth, 100);
+          expect(overlay.page.sourceHeight, 150);
+          final p0 = overlay.transform.toViewport(ContentPoint(.1, .1));
+          final p1 = overlay.transform.toViewport(ContentPoint(.25, .25));
+          await tester.dragFrom(
+            tester.getTopLeft(overlayFinder) + Offset(p0.x, p0.y),
+            Offset(p1.x - p0.x, p1.y - p0.y),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(AnnotationEditor), findsOneWidget);
+          await tester.enterText(
+            find.byType(TextField),
+            'Continuous source note',
+          );
+          await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+          await tester.pumpAndSettle();
+          final note = reader.annotations.all.single;
+          expect(note.anchor.sourceImageNumber, 1);
+          expect(note.rect!.x0, closeTo(.1, .01));
+          expect(note.rect!.y0, closeTo(.1, .01));
+          expect(note.rect!.x1, closeTo(.25, .01));
+          expect(note.rect!.y1, closeTo(.25, .01));
+          expect(flow.scrollController, same(originalScroll));
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = const Size(1000, 700);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          addTearDown(tester.view.resetPhysicalSize);
+          await tester.pumpAndSettle();
+          expect(reader.imageViewController, same(flow));
+          expect(flow.photoViewController, same(originalPhoto));
+          expect(flow.scrollController, same(originalScroll));
+          expect(
+            reader.annotations.all.single.rect!.toJson(),
+            note.rect!.toJson(),
+          );
+          await tester.tap(find.byTooltip('区域批注'));
+          await tester.pump();
+          final resizedOverlay = tester.widget<AnnotationOverlay>(
+            find.byWidgetPredicate(
+              (widget) => widget is AnnotationOverlay && widget.selecting,
+            ),
+          );
+          final offsetBeforeSelection = flow.scrollController.offset;
+          final resizedStart = resizedOverlay.transform.toViewport(
+            ContentPoint(.1, .1),
+          );
+          final resizedEnd = resizedOverlay.transform.toViewport(
+            ContentPoint(.2, .2),
+          );
+          final resizedFinder = find.byWidgetPredicate(
+            (widget) => widget is AnnotationOverlay && widget.selecting,
+          );
+          await tester.dragFrom(
+            tester.getTopLeft(resizedFinder) +
+                Offset(resizedStart.x, resizedStart.y),
+            Offset(
+              resizedEnd.x - resizedStart.x,
+              resizedEnd.y - resizedStart.y,
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            flow.scrollController.offset,
+            closeTo(offsetBeforeSelection, .01),
+          );
+          expect(find.byType(AnnotationEditor), findsOneWidget);
+          await tester.tap(find.text('取消'));
+          await tester.pumpAndSettle();
+          expect(reader.annotations.all, hasLength(1));
+          originalPhoto.updateMultiple(
+            scale: 1.4,
+            position: const Offset(15, -10),
+          );
+          await tester.pumpAndSettle();
+          final active = tester.widget<ReaderAnnotationLayer>(
+            find.byType(ReaderAnnotationLayer),
+          );
+          final displayed = tester.widget<AnnotationOverlay>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is AnnotationOverlay &&
+                  widget.page.pageId == note.anchor.pageId,
+            ),
+          );
+          expect(active.imageNumber, reader.page);
+          final state = flow.imageStates
+              .whereType<ComicImageState>()
+              .firstWhere(
+                (state) =>
+                    (state.widget.image as ReaderDisplayImageProvider)
+                        .image
+                        .page ==
+                    1,
+              );
+          final box = state.context.findRenderObject() as RenderBox;
+          final paint = state.imagePaintBounds!;
+          final actual = box.localToGlobal(
+            Offset(
+              paint.left + paint.width * note.rect!.x0,
+              paint.top + paint.height * note.rect!.y0,
+            ),
+          );
+          final projected = displayed.transform.toViewport(
+            ContentPoint(note.rect!.x0, note.rect!.y0),
+          );
+          final origin = tester.getTopLeft(find.byType(ReaderContinuousView));
+          expect(
+            (actual - (origin + Offset(projected.x, projected.y))).distance,
+            lessThan(1),
+          );
+          expect(reader.imageViewController, same(flow));
+          expect(flow.photoViewController, same(originalPhoto));
+          await tester.tap(find.byTooltip('隐藏标注'));
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widgetList<AnnotationOverlay>(find.byType(AnnotationOverlay))
+                .every((widget) => !widget.visible),
+            isTrue,
+          );
+          await tester.tap(find.byTooltip('显示标注'));
+          await tester.pumpAndSettle();
+          originalPhoto.updateMultiple(scale: 1, position: Offset.zero);
+          await tester.pumpAndSettle();
+          reader.controller.toPage(2, animated: false);
+          await _pumpUntil(
+            tester,
+            () =>
+                reader.page == 2 &&
+                find.byType(ReaderAnnotationLayer).evaluate().isNotEmpty &&
+                tester
+                        .widget<ReaderAnnotationLayer>(
+                          find.byType(ReaderAnnotationLayer),
+                        )
+                        .imageNumber ==
+                    2 &&
+                tester
+                    .widget<ReaderAnnotationLayer>(
+                      find.byType(ReaderAnnotationLayer),
+                    )
+                    .isCurrent() &&
+                find.byTooltip('整页笔记').evaluate().length == 1,
+          );
+          expect(reader.annotations.all.single.id, note.id);
+          await tester.tap(find.byTooltip('整页笔记'));
+          await tester.pumpAndSettle();
+          await tester.enterText(find.byType(TextField), 'stale page two');
+          reader.controller.toPage(3, animated: false);
+          await _pumpUntil(tester, () => reader.page == 3);
+          await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+          await tester.pumpAndSettle();
+          expect(reader.annotations.all.single.id, note.id);
+          expect(
+            reader.annotations.all.single.rect!.toJson(),
+            note.rect!.toJson(),
+          );
+          expect(tester.takeException(), isNull);
+        } finally {
+          await fixture.dispose(tester);
+        }
+      },
+      skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+    );
+  }
+
+  testWidgets(
+    'waterfall annotation source identity follows the displayed chapter',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      try {
+        const chapters = ComicChapters({'one': 'First', 'two': 'Second'});
+        await tester.runAsync(() async {
+          final folder = Directory('${LocalManager().path}/book/two')
+            ..createSync();
+          await File(
+            '${LocalManager().path}/book/one/1.png',
+          ).copy('${folder.path}/1.png');
+          final book = LocalManager().find('book', ComicType.local)!;
+          await LocalManager().add(
+            LocalComic(
+              id: book.id,
+              title: book.title,
+              subtitle: book.subtitle,
+              tags: book.tags,
+              directory: book.directory,
+              chapters: chapters,
+              cover: book.cover,
+              comicType: book.comicType,
+              downloadedChapters: const ['one', 'two'],
+              createdAt: book.createdAt,
+            ),
+            book.id,
+          );
+        });
+        appdata.settings['readerMode'] = ReaderMode.waterfallTopToBottom.key;
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+          chapters: chapters,
+        );
+        await _pumpUntil(
+          tester,
+          () => find.byTooltip('整页笔记').evaluate().isNotEmpty,
+        );
+        final reader = fixture.readerKey.currentState!;
+        final flow = reader.imageViewController! as ContinuousModeState;
+        await tester.tap(find.byTooltip('整页笔记'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'first chapter');
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        final first = reader.annotations.all.single;
+        expect(flow.toChapter(2), isTrue);
+        await _pumpUntil(
+          tester,
+          () =>
+              reader.chapter == 2 &&
+              find.byType(ReaderAnnotationLayer).evaluate().isNotEmpty &&
+              tester
+                      .widget<ReaderAnnotationLayer>(
+                        find.byType(ReaderAnnotationLayer),
+                      )
+                      .chapterId ==
+                  'two',
+        );
+        await tester.tap(find.byTooltip('整页笔记'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), 'second chapter');
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        final second = reader.annotations.all.firstWhere(
+          (note) => note.text == 'second chapter',
+        );
+        expect(first.anchor.chapterId, 'one');
+        expect(second.anchor.chapterId, 'two');
+        expect(second.anchor.sourceImageNumber, 1);
+        expect(second.anchor.pageId, isNot(first.anchor.pageId));
+        expect(
+          reader.annotations.sourcePage(second.anchor)!.sourceIdentity,
+          'two/1.png',
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  for (final wide in [false, true]) {
+    testWidgets(
+      'annotation keyboard selects current page and finds notes without typing page turns; wide=$wide',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = Size(wide ? 1200 : 800, 900);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPhysicalSize);
+        final fixture = await _ReaderFixture.create(tester);
+        Future<void> command(
+          LogicalKeyboardKey key, {
+          bool shift = false,
+        }) async {
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+          if (shift) {
+            await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+          }
+          await tester.sendKeyEvent(key);
+          if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+          await tester.pumpAndSettle();
+        }
+
+        try {
+          await fixture.mount(
+            tester,
+            pushed: false,
+            withWindow: false,
+            persistentAnnotations: true,
+          );
+          final reader = fixture.readerKey.currentState!;
+          reader.focusNode.requestFocus();
+          await tester.pump();
+          await command(LogicalKeyboardKey.keyN, shift: true);
+          expect(find.byTooltip('取消框选'), findsOneWidget);
+          expect(reader.annotations.inputActive, isTrue);
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          await tester.pumpAndSettle();
+          expect(reader.annotations.inputActive, isFalse);
+          expect(reader.focusNode.hasPrimaryFocus, isTrue);
+          await command(LogicalKeyboardKey.keyN, shift: true);
+          final overlayFinder = find.byWidgetPredicate(
+            (widget) => widget is AnnotationOverlay && widget.selecting,
+          );
+          expect(overlayFinder, findsOneWidget);
+          final overlay = tester.widget<AnnotationOverlay>(overlayFinder);
+          final start = overlay.transform.toViewport(ContentPoint(.2, .2));
+          final end = overlay.transform.toViewport(ContentPoint(.8, .8));
+          await tester.dragFrom(
+            tester.getTopLeft(overlayFinder) + Offset(start.x, start.y),
+            Offset(end.x - start.x, end.y - start.y),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(AnnotationEditor), findsOneWidget);
+          await tester.enterText(find.byType(TextField), 'Saved with keyboard');
+          await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+          await tester.pumpAndSettle();
+          expect(reader.annotations.all.single.text, 'Saved with keyboard');
+          expect(reader.annotations.all.single.anchor.sourceImageNumber, 1);
+          expect(reader.focusNode.hasPrimaryFocus, isTrue);
+          await command(LogicalKeyboardKey.keyF);
+          final search = find.byKey(const ValueKey('annotation-search'));
+          expect(search, findsOneWidget);
+          expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
+          final before = reader.page;
+          await tester.enterText(search, 'draft search');
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+          await tester.pump();
+          expect(reader.page, before);
+          await command(LogicalKeyboardKey.keyN, shift: true);
+          expect(find.byTooltip('取消框选'), findsNothing);
+          expect(
+            tester
+                .widget<EditableText>(
+                  find.descendant(
+                    of: search,
+                    matching: find.byType(EditableText),
+                  ),
+                )
+                .controller
+                .text,
+            'draft search',
+          );
+          await tester.tap(find.byTooltip('关闭批注面板'));
+          await tester.pumpAndSettle();
+          expect(reader.annotations.inputActive, isFalse);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await fixture.dispose(tester);
+        }
+      },
+      skip:
+          !const bool.fromEnvironment('COMICNOTES_POC') ||
+          (wide && !const bool.fromEnvironment('COMICNOTES_WORKSPACE')),
+    );
+  }
+
+  testWidgets(
+    'local annotation inspector edits persistent notes through real reader routes',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      try {
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+        );
+        final reader = fixture.readerKey.currentState!;
+        expect(reader.annotations.persistent, isTrue);
+        await tester.tap(find.byTooltip('整页笔记'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), '原批注');
+        await tester.tap(find.text('保存'));
+        await tester.pumpAndSettle();
+        final id = reader.annotations.all.single.id;
+        await tester.tap(find.byTooltip('本页批注 (1)'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('原批注'));
+        await tester.pumpAndSettle();
+        expect(find.byType(TextField), findsOneWidget);
+        await tester.enterText(find.byType(TextField), '修改后批注');
+        await tester.tap(find.text('保存'));
+        await tester.pumpAndSettle();
+        expect(reader.annotations.all.single.id, id);
+        expect(reader.annotations.all.single.text, '修改后批注');
+        await tester.tap(find.text('关闭'));
+        await tester.pumpAndSettle();
+        expect(reader.annotations.inputActive, isFalse);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'annotation inspector locates a source image across chapters without changing saved layout preferences',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      try {
+        await tester.runAsync(() async {
+          final second = Directory('${LocalManager().path}/book/two')
+            ..createSync();
+          await File(
+            '${LocalManager().path}/book/one/1.png',
+          ).copy('${second.path}/1.png');
+          final book = LocalManager().find('book', ComicType.local)!;
+          await LocalManager().add(
+            LocalComic(
+              id: book.id,
+              title: book.title,
+              subtitle: book.subtitle,
+              tags: book.tags,
+              directory: book.directory,
+              chapters: const ComicChapters({'one': 'One', 'two': 'Two'}),
+              cover: book.cover,
+              comicType: book.comicType,
+              downloadedChapters: const ['one', 'two'],
+              createdAt: book.createdAt,
+            ),
+          );
+        });
+        await fixture.mount(
+          tester,
+          pushed: false,
+          persistentAnnotations: true,
+          chapters: const ComicChapters({'one': 'One', 'two': 'Two'}),
+        );
+        final reader = fixture.readerKey.currentState!;
+        final page = reader.annotations.anchor(
+          chapterId: 'two',
+          imageNumber: 99,
+          width: 100,
+          height: 150,
+          sourceIdentity: 'file://${LocalManager().path}/book/two/1.png',
+        );
+        final note = reader.annotations.add(
+          page,
+          AnnotationKind.pageNote,
+          '跨章节批注',
+        );
+        appdata.settings['readerScreenPicNumberForLandscape'] = 2;
+        tester
+            .state<ReaderScaffoldState>(find.byType(ReaderScaffold))
+            .openAnnotationInspector();
+        await tester.pumpAndSettle();
+        expect(find.text('全书批注 · 1'), findsOneWidget);
+        await tester.tap(find.text('定位原图'));
+        await _pumpUntil(
+          tester,
+          () =>
+              reader.chapter == 2 &&
+              !reader.isLoading &&
+              reader.images?.length == 1 &&
+              _annotationImagesReady(reader),
+        );
+        await tester.pumpAndSettle();
+        expect(reader.page, 1);
+        expect(reader.imagesPerPage, 1);
+        expect(reader.annotations.selectedId, note.id);
+        expect(appdata.settings['readerScreenPicNumberForLandscape'], 2);
+        expect(find.text('跨章节批注'), findsOneWidget);
+        final overlay = tester
+            .widgetList<AnnotationOverlay>(find.byType(AnnotationOverlay))
+            .singleWhere((w) => w.page.pageId == page.pageId);
+        expect(overlay.selectedId, note.id);
+        tester
+            .state<ReaderScaffoldState>(find.byType(ReaderScaffold))
+            .openAnnotationInspector();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('返回阅读布局'));
+        await _pumpUntil(tester, () => _annotationImagesReady(reader));
+        await tester.pumpAndSettle();
+        expect(reader.imagesPerPage, 2);
+        expect(reader.annotations.selectedId, isNull);
+        expect(reader.chapter, 2);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'Mac annotation workspace keeps reader geometry, keyboard ownership and docked navigation coherent',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final fixture = await _ReaderFixture.create(tester);
+      try {
+        appdata.settings['readerScreenPicNumberForLandscape'] = 1;
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+          brightness:
+              Platform.environment['COMICNOTES_WORKSPACE_QA_DARK'] == 'true'
+              ? Brightness.dark
+              : Brightness.light,
+        );
+        final reader = fixture.readerKey.currentState!;
+        await _pumpUntil(tester, () => _annotationImagesReady(reader));
+        final page = reader.annotations.anchor(
+          chapterId: 'one',
+          imageNumber: 3,
+          width: 100,
+          height: 150,
+          sourceIdentity: reader.images!.last,
+        );
+        final note = reader.annotations.add(
+          page,
+          AnnotationKind.region,
+          '观察画面的构图',
+          rect: ContentRect(.2, .2, .7, .65),
+        );
+        reader.annotations.setTags(note.id, ['构图']);
+        final viewport = reader.imageViewController;
+        tester
+            .state<ReaderScaffoldState>(find.byType(ReaderScaffold))
+            .openAnnotationInspector();
+        await _pumpUntil(
+          tester,
+          () =>
+              reader.size == const Size(920, 848) &&
+              _annotationImagesReady(reader),
+        );
+        await tester.pumpAndSettle();
+        expect(reader.imageViewController, same(viewport));
+        expect(find.text('全书批注 · 1'), findsOneWidget);
+        await tester.enterText(
+          find.byKey(const ValueKey('annotation-search')),
+          '构图',
+        );
+        await tester.pump();
+        expect(reader.annotations.inputActive, isTrue);
+        final before = reader.page;
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pump();
+        expect(reader.page, before);
+        reader.focusNode.requestFocus();
+        await tester.pump();
+        expect(reader.annotations.inputActive, isFalse);
+        await tester.tap(find.text('定位原图'));
+        await _pumpUntil(
+          tester,
+          () => reader.page == 3 && _annotationImagesReady(reader),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('全书批注 · 1'), findsOneWidget);
+        expect(reader.annotations.selectedId, note.id);
+        final overlay = tester
+            .widgetList<AnnotationOverlay>(find.byType(AnnotationOverlay))
+            .singleWhere((w) => w.page.pageId == page.pageId);
+        final center = overlay.transform.toViewport(const ContentPoint(.5, .5));
+        expect(center.x, closeTo(460, 1));
+        expect(center.y, closeTo(424, 1));
+        final directory = Platform.environment['COMICNOTES_WORKSPACE_QA_DIR'];
+        if (directory != null) {
+          await tester.runAsync(() async {
+            await Directory(directory).create(recursive: true);
+            final image = await tester
+                .renderObject<RenderRepaintBoundary>(
+                  find.byType(RepaintBoundary).first,
+                )
+                .toImage(pixelRatio: 1);
+            try {
+              final data = await image.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              await File(
+                '$directory/workspace-${Platform.environment['COMICNOTES_WORKSPACE_QA_DARK'] == 'true' ? 'dark' : 'light'}.png',
+              ).writeAsBytes(data!.buffer.asUint8List());
+            } finally {
+              image.dispose();
+            }
+          });
+        }
+        final focusedViewport = reader.imageViewController;
+        await tester.tap(find.byTooltip('收起批注栏'));
+        await _pumpUntil(tester, () => reader.size == const Size(1280, 848));
+        expect(reader.imageViewController, same(focusedViewport));
+        await tester.tap(find.byTooltip('专注阅读'));
+        await _pumpUntil(tester, () => reader.size == const Size(1280, 900));
+        expect(find.byTooltip('显示工作台'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await fixture.dispose(tester);
+      }
+    },
+    skip:
+        !const bool.fromEnvironment('COMICNOTES_POC') ||
+        !const bool.fromEnvironment('COMICNOTES_WORKSPACE'),
+  );
+
+  testWidgets(
+    'comicnotes app link resolves the real database and opens its original image in a focused reader',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      const memory = MethodChannel('flutter_memory_info');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        memory,
+        (_) async => 8 * 1024 * 1024 * 1024,
+      );
+      try {
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+        );
+        final old = fixture.readerKey.currentState!;
+        final page = old.annotations.anchor(
+          chapterId: 'one',
+          imageNumber: 99,
+          width: 100,
+          height: 150,
+          sourceIdentity: old.images!.last,
+        );
+        final note = old.annotations.add(
+          page,
+          AnnotationKind.region,
+          '外部引用定位',
+          rect: ContentRect(0.1, 0.1, 0.6, 0.6),
+        );
+        appdata.settings['readerMode'] = ReaderMode.continuousTopToBottom.key;
+        appdata.settings['readerScreenPicNumberForLandscape'] = 2;
+        final uri = AnnotationLink(
+          documentId: note.anchor.documentId,
+          annotationId: note.id,
+        ).toUri();
+        expect(await tester.runAsync(() => handleAppLink(uri)), isTrue);
+        final linked = find.byWidgetPredicate(
+          (w) => w is Reader && w is! _TestReader,
+        );
+        await _pumpUntil(
+          tester,
+          () =>
+              linked.evaluate().isNotEmpty &&
+              tester.state<ReaderState>(linked).images?.length == 3 &&
+              _annotationImagesReady(tester.state<ReaderState>(linked)),
+        );
+        await tester.pumpAndSettle();
+        final next = tester.state<ReaderState>(linked),
+            widget = tester.widget<Reader>(linked);
+        expect(widget.initialAnnotationId, note.id);
+        expect(widget.initialPage, 3);
+        expect(next.page, 3);
+        expect(next.chapter, 1);
+        expect(next.mode.isGallery, isTrue);
+        expect(next.imagesPerPage, 1);
+        expect(next.annotations.selectedId, note.id);
+        expect(next.annotations.documentId, old.annotations.documentId);
+        expect(
+          appdata.settings['readerMode'],
+          ReaderMode.continuousTopToBottom.key,
+        );
+        expect(appdata.settings['readerScreenPicNumberForLandscape'], 2);
+        expect(find.text('外部引用定位'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        messenger.setMockMethodCallHandler(memory, null);
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'comicnotes app link rejects a binding to another import version without deleting notes',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      try {
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+        );
+        final reader = fixture.readerKey.currentState!;
+        final page = reader.annotations.anchor(
+          chapterId: 'one',
+          imageNumber: 1,
+          width: 100,
+          height: 150,
+          sourceIdentity: reader.images!.first,
+        );
+        final note = reader.annotations.add(
+          page,
+          AnnotationKind.bookmark,
+          '旧版本',
+        );
+        final store = AnnotationRepository.open(
+          '${App.dataPath}/annotations.db',
+        );
+        try {
+          store.db.execute(
+            'UPDATE source_documents SET library_key=? WHERE document_id=?',
+            ['local:book:0', note.anchor.documentId],
+          );
+          expect(
+            await tester.runAsync(
+              () => handleAppLink(
+                AnnotationLink(
+                  documentId: note.anchor.documentId,
+                  annotationId: note.id,
+                ).toUri(),
+              ),
+            ),
+            isFalse,
+          );
+          expect(store.list(note.anchor.documentId).single.id, note.id);
+        } finally {
+          store.close();
+        }
+        expect(
+          find.byWidgetPredicate((w) => w is Reader && w is! _TestReader),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'comicnotes app link drops a retired asynchronous handler before opening a reader',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      final pending = Completer<AnnotationLinkDestination>();
+      var active = true;
+      try {
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+          resolveLink: (_) => pending.future,
+        );
+        final uri = AnnotationLink(
+          documentId: 'book',
+          annotationId: 'note',
+        ).toUri();
+        final work = handleAppLink(uri, isActive: () => active);
+        active = false;
+        pending.complete(
+          const AnnotationLinkDestination(
+            comicId: 'book',
+            createdAtMilliseconds: 0,
+            chapter: 1,
+            imageNumber: 1,
+            annotationId: 'note',
+          ),
+        );
+        expect(await work, isFalse);
+        expect(
+          find.byWidgetPredicate((w) => w is Reader && w is! _TestReader),
+          findsNothing,
+        );
+      } finally {
+        if (!pending.isCompleted) {
+          pending.completeError(StateError('cancelled test'));
+        }
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'local annotation export writes a complete notebook through its real runtime binding',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      const selector = MethodChannel('plugins.flutter.io/file_selector');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      try {
+        final output = Directory('${fixture.directory.path}/exports')
+          ..createSync();
+        messenger.setMockMethodCallHandler(selector, (call) async {
+          expect(call.method, 'getDirectoryPath');
+          return output.path;
+        });
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+        );
+        final reader = fixture.readerKey.currentState!;
+        await tester.tap(find.byTooltip('整页笔记'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), '导出此条笔记');
+        await tester.tap(find.text('保存'));
+        await tester.pumpAndSettle();
+        await tester.runAsync(reader.exportAnnotations);
+        await tester.pumpAndSettle();
+        expect(find.text('已导出 1 条批注'), findsOneWidget);
+        final files = output
+            .listSync(recursive: true)
+            .whereType<File>()
+            .toList();
+        final markdown = files
+            .singleWhere((f) => f.path.endsWith('.md'))
+            .readAsStringSync();
+        expect(markdown, contains('导出此条笔记'));
+        expect(markdown, contains('缓存'));
+        expect(files.where((f) => f.path.endsWith('.png')), hasLength(1));
+        expect(
+          files.where((f) => f.path.endsWith('manifest.json')),
+          hasLength(1),
+        );
+        // The completed success dialog cannot hold an image-work close hostage.
+        void Function()? release;
+        final closing = reader.imageWork.prepareForExit().then(
+          (value) => release = value,
+        );
+        for (var i = 0; i < 50 && release == null; i++) {
+          await tester.pump();
+          await tester.runAsync(() => pumpEventQueue());
+        }
+        expect(release, isNotNull);
+        await closing;
+        release!();
+        expect(reader.annotations.inputActive, isFalse);
+        await tester.tap(find.text('关闭'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      } finally {
+        messenger.setMockMethodCallHandler(selector, null);
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'annotation inspector relocates an exact original through the real file selector binding',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      const selector = MethodChannel('plugins.flutter.io/file_selector');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      try {
+        final original = File('${fixture.directory.path}/original.cbz')
+          ..writeAsBytesSync([1, 2, 3, 4]);
+        final fingerprint = (await tester.runAsync(
+          () => ComicSourceProvenance.fingerprint(original),
+        ))!;
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+        );
+        final reader = fixture.readerKey.currentState!;
+        final document = reader.annotations.sourceDocument!;
+        final store = AnnotationRepository.open(
+          '${App.dataPath}/annotations.db',
+        );
+        try {
+          store.openDocument(
+            libraryKey: document.libraryKey,
+            title: 'Book',
+            source: AnnotationDocumentSource(
+              kind: 'archive',
+              uri: original.uri.toString(),
+              sha256: fingerprint['sha256'] as String,
+              size: 4,
+            ),
+          );
+        } finally {
+          store.close();
+        }
+        final page = reader.annotations.anchor(
+          chapterId: 'one',
+          imageNumber: 1,
+          width: 100,
+          height: 150,
+          sourceIdentity: reader.images!.first,
+        );
+        final note = reader.annotations.add(
+          page,
+          AnnotationKind.pageNote,
+          'Keep ID',
+        );
+        final moved = original.renameSync(
+          '${fixture.directory.path}/moved %.cbz',
+        );
+        messenger.setMockMethodCallHandler(selector, (call) async {
+          expect(call.method, 'openFile');
+          return [moved.path];
+        });
+        tester
+            .state<ReaderScaffoldState>(find.byType(ReaderScaffold))
+            .openAnnotationInspector();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('重新关联原件'));
+        await _pumpUntil(
+          tester,
+          () => find.text('原件已重新关联，批注 ID 与坐标保持不变').evaluate().isNotEmpty,
+        );
+        expect(
+          reader.annotations.sourceDocument!.source!.uri,
+          moved.uri.toString(),
+        );
+        expect(reader.annotations.all.single.id, note.id);
+        expect(reader.annotations.inputActive, isFalse);
+        expect(find.byType(ReaderScaffold), findsOneWidget);
+        await tester.tap(find.byTooltip('关闭批注面板'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      } finally {
+        messenger.setMockMethodCallHandler(selector, null);
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'annotation inspector recovers orphan notes into the current reader without losing old links',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      try {
+        final comic = LocalManager().find('book', ComicType.local)!;
+        late Annotation note;
+        late String documentId;
+        await tester.runAsync(() async {
+          final receipt = ComicSourceProvenance(
+            source: {
+              'kind': 'archive',
+              'uri': 'file:///removed.cbz',
+              'sha256': 'a' * 64,
+              'size': 1,
+            },
+            pages: {},
+          );
+          final pageFile = File('${comic.baseDir}/one/1.png');
+          receipt.pages['one/1.png'] = {
+            'kind': 'archiveImage',
+            'extractedEntry': '1.png',
+            ...await ComicSourceProvenance.fingerprint(pageFile),
+          };
+          await receipt.write(Directory(comic.baseDir));
+          final old = openLocalAnnotationSession(
+            libraryKey: 'local:removed:0',
+            title: 'Older import',
+            sourceRoot: comic.baseDir,
+          );
+          try {
+            final page = old.anchor(
+              chapterId: 'one',
+              imageNumber: 1,
+              width: 100,
+              height: 150,
+              sourceIdentity: 'file://${pageFile.path}',
+            );
+            note = old.add(page, AnnotationKind.pageNote, '恢复原来的文字');
+            old.setTags(note.id, ['旧标签']);
+            documentId = old.documentId;
+          } finally {
+            old.close();
+          }
+        });
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+        );
+        final reader = fixture.readerKey.currentState!;
+        expect(reader.annotations.all, isEmpty);
+        tester
+            .state<ReaderScaffoldState>(find.byType(ReaderScaffold))
+            .openAnnotationInspector();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('恢复旧批注'));
+        await _pumpUntil(
+          tester,
+          () => find.text('恢复同一原件的旧批注').evaluate().isNotEmpty,
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Older import'), findsOneWidget);
+        await tester.tap(find.text('Older import'));
+        await _pumpUntil(
+          tester,
+          () =>
+              reader.annotations.documentId == documentId &&
+              _annotationImagesReady(reader),
+        );
+        await tester.pumpAndSettle();
+        expect(reader.annotations.all.single.id, note.id);
+        expect(reader.annotations.all.single.tags, ['旧标签']);
+        expect(reader.annotations.inputActive, isFalse);
+        final target = await tester.runAsync(
+          () => resolveLocalAnnotationLink(
+            AnnotationLink(documentId: documentId, annotationId: note.id),
+          ),
+        );
+        expect(target!.comic.id, 'book');
+        expect(target.location.imageNumber, 1);
+        tester
+            .state<ReaderScaffoldState>(find.byType(ReaderScaffold))
+            .openAnnotationInspector();
+        await tester.pumpAndSettle();
+        expect(find.text('恢复原来的文字'), findsOneWidget);
+        expect(find.text('恢复旧批注'), findsNothing);
+        await tester.tap(find.byTooltip('关闭批注面板'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      } finally {
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'annotation inspector backs up the live database through its real file selector binding',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      const selector = MethodChannel('plugins.flutter.io/file_selector');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      try {
+        final output = Directory('${fixture.directory.path}/backups')
+          ..createSync();
+        messenger.setMockMethodCallHandler(selector, (_) async => output.path);
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+        );
+        final reader = fixture.readerKey.currentState!;
+        final page = reader.annotations.anchor(
+          chapterId: 'one',
+          imageNumber: 1,
+          width: 100,
+          height: 150,
+          sourceIdentity: reader.images!.first,
+        );
+        final note = reader.annotations.add(
+          page,
+          AnnotationKind.pageNote,
+          '备份此条批注',
+        );
+        reader.annotations.setTags(note.id, ['构图']);
+        tester
+            .state<ReaderScaffoldState>(find.byType(ReaderScaffold))
+            .openAnnotationInspector();
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('备份全部批注'));
+        await _pumpUntil(
+          tester,
+          () => find.text('全部批注已备份').evaluate().isNotEmpty,
+        );
+        await tester.pumpAndSettle();
+        final database = output
+            .listSync(recursive: true)
+            .whereType<File>()
+            .singleWhere((file) => file.path.endsWith('annotations.db'));
+        final copy = AnnotationRepository.open(database.path);
+        try {
+          expect(copy.list(reader.annotations.documentId).single.id, note.id);
+          expect(copy.list(reader.annotations.documentId).single.tags, ['构图']);
+        } finally {
+          copy.close();
+        }
+        expect(reader.annotations.inputActive, isFalse);
+        void Function()? release;
+        final closing = reader.imageWork.prepareForExit().then(
+          (value) => release = value,
+        );
+        await _pumpUntil(tester, () => release != null);
+        expect(release, isNotNull);
+        await closing;
+        release!();
+        await tester.tap(find.text('关闭'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      } finally {
+        messenger.setMockMethodCallHandler(selector, null);
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
+
+  testWidgets(
+    'local annotation export cancels without publishing when its image owner closes',
+    (tester) async {
+      final fixture = await _ReaderFixture.create(tester);
+      final pending = Completer<AnnotationExportResult?>();
+      bool Function()? cancelled;
+      try {
+        await fixture.mount(
+          tester,
+          pushed: false,
+          withWindow: false,
+          persistentAnnotations: true,
+          exportNotes:
+              ({required session, required title, required isCancelled}) {
+                cancelled = isCancelled;
+                return pending.future;
+              },
+        );
+        final reader = fixture.readerKey.currentState!;
+        final work = reader.exportAnnotations();
+        await tester.pump();
+        expect(find.text('正在导出图文笔记'), findsOneWidget);
+        final release = reader.imageWork.holdForExit();
+        expect(cancelled!(), isTrue);
+        pending.complete(null);
+        await work;
+        await tester.pumpAndSettle();
+        expect(find.text('正在导出图文笔记'), findsNothing);
+        expect(reader.annotations.inputActive, isFalse);
+        release();
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (!pending.isCompleted) pending.complete(null);
+        await fixture.dispose(tester);
+      }
+    },
+    skip: !const bool.fromEnvironment('COMICNOTES_POC'),
+  );
 
   for (final mode in [
     ReaderMode.galleryLeftToRight,
@@ -4683,6 +6771,13 @@ Future<void> _pumpUntil(WidgetTester tester, bool Function() finished) async {
   expect(finished(), isTrue, reason: 'Reader work did not reach its gate');
 }
 
+bool _annotationImagesReady(ReaderState reader) {
+  final viewport = reader.imageViewController;
+  return !reader.isLoading &&
+      viewport is AutoReadingViewport &&
+      (viewport as AutoReadingViewport).autoReadingReady;
+}
+
 /// Flutter's decoder remains real; only completion of its native frame future
 /// is controlled. No reader, host, provider, stream or image-work wiring is
 /// replaced, and tests without a gate use the normal binding unchanged.
@@ -4959,23 +7054,48 @@ class _ReaderFixture {
     int? initialChapter,
     int? initialPage,
     int? initialChapterGroup,
+    bool persistentAnnotations = false,
+    bool globalImport = false,
+    ExportAnnotationNotes? exportNotes,
+    String? initialAnnotationId,
+    ResolveAnnotationLink? resolveLink,
   }) async {
     var registered = false;
-    Widget reader() => Scaffold(
-      body: _TestReader(
-        key: readerKey,
-        onClosed: () => notifications++,
-        volumeConnect: volumeConnect,
-        windowCoordinator: windowCoordinator,
-        chapters: chapters,
-        comicId: comicId,
-        comicType: comicType,
-        savedHistory: savedHistory,
-        initialChapter: initialChapter,
-        initialPage: initialPage,
-        initialChapterGroup: initialChapterGroup,
-      ),
-    );
+    final importRoutes = ImportCommandRoutes();
+    Widget reader() {
+      final content = Scaffold(
+        body: _TestReader(
+          key: readerKey,
+          onClosed: () => notifications++,
+          volumeConnect: volumeConnect,
+          windowCoordinator: windowCoordinator,
+          chapters: chapters,
+          comicId: comicId,
+          comicType: comicType,
+          savedHistory: savedHistory,
+          initialChapter: initialChapter,
+          initialPage: initialPage,
+          initialChapterGroup: initialChapterGroup,
+          initialAnnotationId: initialAnnotationId,
+        ),
+      );
+      return persistentAnnotations
+          ? AnnotationServicesScope(
+              openSession: openLocalAnnotationSession,
+              exportNotes: exportNotes ?? exportLocalAnnotations,
+              backupNotes: backupLocalAnnotations,
+              relocateOriginal: selectAnnotationOriginal,
+              findRecovery: findRecoverableAnnotations,
+              recoverNotes: recoverLocalAnnotations,
+              findManualRecovery: findManualAnnotationRecovery,
+              prepareManualRecovery: prepareManualAnnotationRecovery,
+              locatePage: locateRegisteredAnnotationPage,
+              resolveLink: resolveLink ?? resolveAnnotationLinkDestination,
+              child: content,
+            )
+          : content;
+    }
+
     if (volumeConnect != null) {
       appdata.settings['enableTurnPageByVolumeKey'] = true;
       appdata.settings['enablePageAnimation'] = false;
@@ -4990,10 +7110,20 @@ class _ReaderFixture {
                 : 'WindowOwnerQA',
           ),
           navigatorKey: appNavigation.rootNavigatorKey,
+          navigatorObservers: [if (globalImport) importRoutes],
           builder: (context, child) {
             Widget content = ReaderPlatformEffectsScope(
               child: OverlayWidget(child!),
             );
+            if (globalImport) {
+              content = ImportCommands(
+                routes: importRoutes,
+                canOpen: () => true,
+                open: () =>
+                    showLocalComicImportDialog(appNavigation.rootContext),
+                child: content,
+              );
+            }
             if (withWindow) {
               content = WindowFrame(
                 Builder(
@@ -5019,6 +7149,24 @@ class _ReaderFixture {
               ),
               child: content,
             );
+            if (persistentAnnotations) {
+              content = AnnotationServicesScope(
+                openSession: openLocalAnnotationSession,
+                exportNotes: exportNotes ?? exportLocalAnnotations,
+                backupNotes: backupLocalAnnotations,
+                relocateOriginal: selectAnnotationOriginal,
+                findRecovery: findRecoverableAnnotations,
+                recoverNotes: recoverLocalAnnotations,
+                findManualRecovery: findManualAnnotationRecovery,
+                prepareManualRecovery: prepareManualAnnotationRecovery,
+                locatePage: locateRegisteredAnnotationPage,
+                resolveLink: resolveLink ?? resolveAnnotationLinkDestination,
+                child: ReaderSessionScope(
+                  onClosed: () => notifications++,
+                  child: content,
+                ),
+              );
+            }
             if (registries != null) {
               return ValueListenableBuilder<SelectionTaskRegistry>(
                 valueListenable: registries,
@@ -5161,6 +7309,7 @@ class _TestReader extends Reader {
     super.initialChapter,
     super.initialPage,
     super.initialChapterGroup,
+    super.initialAnnotationId,
   }) : super(
          type: comicType,
          cid: comicId,

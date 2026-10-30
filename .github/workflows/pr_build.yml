@@ -51,6 +51,8 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - name: 准备 Rust 工具链
         run: |
           python3 .github/scripts/prepare_rust_toolchain.py \
@@ -101,6 +103,8 @@ jobs:
           flutter-version-file: pubspec.yaml
           architecture: x64
           cache: true
+      - name: 准备锁定 Flutter 的可访问性兼容修复
+        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} .github/scripts/prepare_flutter_compat.py
       - run: flutter pub get --enforce-lockfile
       - name: 构建 Windows Debug 应用
         run: flutter build windows --debug

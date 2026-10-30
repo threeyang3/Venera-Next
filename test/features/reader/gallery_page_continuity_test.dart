@@ -13,8 +13,25 @@ import 'package:venera_next/features/reader/page_layout.dart';
 import 'package:venera_next/features/reader/reader_controller.dart';
 import 'package:venera_next/features/reader/reader_viewport.dart';
 import 'package:venera_next/foundation/image_work.dart';
+import 'package:venera_next/features/annotations/annotations.dart';
 
 void main() {
+  for (final direction in ['ltr', 'rtl', 'vertical']) {
+    testWidgets(
+      'annotation layer keeps loaded frames during $direction page turns',
+      (tester) async {
+        final fixture = _Fixture(direction, annotated: true);
+        try {
+          await fixture.mount(tester);
+          await fixture.turnWithoutDiscardingFrame(tester, 2);
+          await fixture.turnWithoutDiscardingFrame(tester, 1);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await fixture.dispose(tester);
+        }
+      },
+    );
+  }
   for (final direction in ['ltr', 'rtl', 'vertical']) {
     testWidgets(
       'interrupted $direction turn resets the retained page in place',
@@ -87,7 +104,9 @@ void main() {
 }
 
 class _Fixture {
-  _Fixture(this.direction);
+  _Fixture(this.direction, {this.annotated = false});
+  final bool annotated;
+  final annotations = AnnotationSession();
   final String direction;
   final directory = Directory.systemTemp.createTempSync('gallery-continuity-');
   final work = ImageWork();
@@ -174,6 +193,7 @@ class _Fixture {
         home: RepaintBoundary(
           key: repaint,
           child: ReaderGalleryView(
+            annotations: annotated ? annotations : null,
             key: key,
             data: data,
             imageWork: work,
@@ -243,8 +263,11 @@ class _Fixture {
           format: ui.ImageByteFormat.rawRgba,
         ))!;
         for (final fraction in [.25, .5, .75]) {
-          final x = (image.width * fraction).floor();
-          final y = (image.height * fraction).floor();
+          // Probe away from the optional toolbar, which legitimately paints
+          // over the image. Frame identity is checked separately above.
+          final x = (image.width * (annotated ? .02 : fraction)).floor();
+          final y = (image.height * (annotated ? .5 + fraction * .3 : fraction))
+              .floor();
           final offset = (y * image.width + x) * 4;
           final rgb = List.generate(
             3,

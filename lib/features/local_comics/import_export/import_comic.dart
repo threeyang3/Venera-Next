@@ -17,12 +17,14 @@ class ImportComic {
   final ComicImportService service;
   final String? selectedFolder;
   final bool copyToLocal;
+  final bool retainPdfOriginals;
 
   final ImportComicPresentation presentation;
 
   const ImportComic({
     this.selectedFolder,
     this.copyToLocal = true,
+    this.retainPdfOriginals = true,
     this.presentation = const ImportComicPresentation(),
     this.service = const ComicImportService(
       localManager: LocalManager.new,
@@ -100,6 +102,7 @@ class ImportComic {
               title: title,
               onProgress: onProgress,
               cancellation: cancellation,
+              retainOriginal: retainPdfOriginals,
               registerComic: (comic) =>
                   service.registerComic(comic, folder: selectedFolder),
             );
@@ -275,6 +278,8 @@ class ImportComic {
           ComicImportIssueKind.localPathNotFound => 'Local path not found'.tl,
           ComicImportIssueKind.noValidComics => 'No valid comics found'.tl,
           ComicImportIssueKind.scanFailed => issue.error.toString(),
+          ComicImportIssueKind.annotationSourceFailed =>
+            '漫画已导入，但批注来源映射未保存：${issue.error}',
           ComicImportIssueKind.copyRecoveryRequired =>
             'Copy recovery could not finish. The files were kept.'.tl,
           ComicImportIssueKind.copyFailed => 'Failed to copy comics'.tl,

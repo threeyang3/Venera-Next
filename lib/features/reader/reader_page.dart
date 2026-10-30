@@ -1,4 +1,8 @@
+import 'package:venera_next/foundation/application_preferences.dart';
+import 'package:venera_next/foundation/global_preference_store.dart';
 import 'package:venera_next/features/history/history_scope.dart';
+import 'package:venera_next/features/annotations/annotations.dart';
+import 'package:venera_next/foundation/file_system.dart';
 import 'package:venera_next/features/favorites/favorites_scope.dart';
 import 'dart:async';
 
@@ -98,6 +102,7 @@ class Reader extends StatefulWidget {
     this.initialPage,
     this.initialChapter,
     this.initialChapterGroup,
+    this.initialAnnotationId,
     required this.author,
     required this.tags,
   });
@@ -122,6 +127,7 @@ class Reader extends StatefulWidget {
 
   /// Starts from 1, invalid values equal to 1
   final int? initialChapterGroup;
+  final String? initialAnnotationId;
 
   final History history;
 
@@ -134,9 +140,526 @@ class Reader extends StatefulWidget {
 class ReaderState extends State<Reader>
     with ReaderImagePerPageHandler, WidgetsBindingObserver {
   final imageWork = ImageWork();
+  AnnotationSession annotations = AnnotationSession();
+  late bool _annotationFocusMode = widget.initialAnnotationId != null;
+  int _annotationViewportRevision = 0;
+  final annotationSelectionRequests = ValueNotifier(0);
+  int _annotationSearchRequest = 0;
+  int _annotationJumpRevision = 0;
+  late String? _pendingAnnotationFocusId = widget.initialAnnotationId;
+  bool get annotationsEnabled =>
+      const bool.fromEnvironment('COMICNOTES_POC') && type == ComicType.local;
+
+  Widget buildAnnotationInspector({
+    VoidCallback? onClose,
+    bool docked = false,
+  }) {
+    _refreshAnnotations();
+    final session = annotations;
+    bool current() =>
+        mounted &&
+        !_stateDisposed &&
+        !_sessionFrozen &&
+        identical(annotations, session);
+    return AnnotationInspector(
+      session: session,
+      searchRequest: _annotationSearchRequest,
+      isCurrent: current,
+      onOpen: jumpToAnnotation,
+      onClose: onClose,
+      keepOpenOnActions: docked,
+      onInputChanged: onAnnotationInputChanged,
+      onChanged: () {
+        if (current()) update();
+      },
+      onExport: () => exportAnnotations(),
+      findRecovery:
+          AnnotationServicesScope.maybeOf(context)?.findRecovery == null
+          ? null
+          : () => AnnotationServicesScope.maybeOf(context)!.findRecovery!(
+              session: session,
+            ),
+      onRecover: AnnotationServicesScope.maybeOf(context)?.recoverNotes == null
+          ? null
+          : recoverAnnotationDocument,
+      findManualRecovery:
+          AnnotationServicesScope.maybeOf(context)?.findManualRecovery == null
+          ? null
+          : () => AnnotationServicesScope.maybeOf(context)!.findManualRecovery!(
+              session: session,
+            ),
+      onManualRecover:
+          AnnotationServicesScope.maybeOf(context)?.prepareManualRecovery ==
+              null
+          ? null
+          : recoverAnnotationDocumentManually,
+      onRelocate:
+          AnnotationServicesScope.maybeOf(context)?.relocateOriginal == null
+          ? null
+          : relocateAnnotationSource,
+      onBackup: AnnotationServicesScope.maybeOf(context)?.backupNotes == null
+          ? null
+          : backupAnnotations,
+      onRestoreReading: _annotationFocusMode
+          ? () {
+              if (!current()) return;
+              _pendingAnnotationFocusId = null;
+              session.selectedId = null;
+              applyReadingMode(
+                ReaderMode.fromKey(
+                  appdata.settings
+                      .readerSettings(cid, type.sourceKey)
+                      .readerMode,
+                ),
+              );
+            }
+          : null,
+    );
+  }
+
+  void _refreshAnnotations() {
+    if (!annotations.persistent) return;
+    try {
+      annotations.refresh();
+    } catch (error, stack) {
+      annotations.persistenceFailure = error;
+      Log.error('Annotation refresh', error, stack);
+    }
+  }
+
+  Future<void> jumpToAnnotation(Annotation note) async {
+    if (!annotationsEnabled ||
+        _stateDisposed ||
+        _sessionFrozen ||
+        isLoading ||
+        note.anchor.documentId != annotations.documentId) {
+      return;
+    }
+    final task = imageWork.start();
+    if (task == null) return;
+    final session = annotations, revision = ++_annotationJumpRevision;
+    bool current() =>
+        mounted &&
+        !_stateDisposed &&
+        !_sessionFrozen &&
+        !task.isCancelled &&
+        identical(annotations, session) &&
+        revision == _annotationJumpRevision;
+    try {
+      final source = session.sourcePage(note.anchor);
+      if (source == null) throw StateError('批注页面来源已失联');
+      final locate = AnnotationServicesScope.maybeOf(context)?.locatePage;
+      final document = session.sourceDocument;
+      late final AnnotationPageLocation target;
+      if (locate != null && document != null) {
+        target = await locate(libraryKey: document.libraryKey, page: source);
+      } else {
+        final index = images?.indexOf(source.assetUri ?? '') ?? -1;
+        if (eid != note.anchor.chapterId || index < 0) {
+          throw StateError('此预览尚未提供跨章节定位服务');
+        }
+        target = AnnotationPageLocation(
+          chapter: chapter,
+          imageNumber: index + 1,
+        );
+      }
+      if (!current()) return;
+      session.refresh();
+      if (!session.all.any((current) => current.id == note.id)) {
+        throw StateError('批注已被删除，未进行跳转');
+      }
+      autoReading.stop();
+      resetPageAnimation();
+      _annotationFocusMode = true;
+      if (!mode.isGallery) mode = ReaderMode.galleryLeftToRight;
+      _lastImagesPerPage = 1;
+      _lastOrientation = isPortrait;
+      controller.restoreChapter(target.chapter);
+      controller.restorePage(target.imageNumber);
+      controller.setJumpToLastPage(false);
+      session.selectedId = note.id;
+      _pendingAnnotationFocusId = note.id;
+      _annotationViewportRevision++;
+      update();
+      updateShell();
+    } catch (error, stack) {
+      Log.error('Annotation navigation', error, stack);
+      if (mounted && current()) {
+        showToast(message: '无法定位批注：$error', context: context);
+      }
+    } finally {
+      task.finish();
+    }
+  }
+
+  /// Re-resolve the original image in the actual loaded content, rather than
+  /// trusting the display index computed before asynchronous page loading.
+  void applyAnnotationFocusToLoadedContent() {
+    final id = _pendingAnnotationFocusId;
+    if (id == null || !annotationsEnabled || _stateDisposed || _sessionFrozen) {
+      return;
+    }
+    final session = annotations;
+    final note = session.all.where((n) => n.id == id).firstOrNull;
+    try {
+      if (note == null) throw StateError('批注已被删除，未能定位');
+      if (note.anchor.chapterId != eid) throw StateError('批注章节已变化，未能定位');
+      final source = session.sourcePage(note.anchor);
+      if (source == null) throw StateError('批注来源已失联');
+      final index =
+          images?.indexWhere(
+            (key) =>
+                (session.sourceIdentityOf?.call(key) ?? key) ==
+                source.sourceIdentity,
+          ) ??
+          -1;
+      if (index < 0) throw StateError('原图片已失联，未能定位；笔记仍保留');
+      controller.restorePage(pageLayout.pageForImage(index + 1));
+      session.selectedId = id;
+      _pendingAnnotationFocusId = null;
+    } catch (error, stack) {
+      _pendingAnnotationFocusId = null;
+      session.selectedId = null;
+      Log.error('Annotation focus', error, stack);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_stateDisposed && identical(annotations, session)) {
+          showToast(message: '$error', context: context);
+        }
+      });
+    }
+  }
+
+  @override
+  int get imagesPerPage => _annotationFocusMode ? 1 : super.imagesPerPage;
+
+  void _configureAnnotations() {
+    annotations.close();
+    annotations = AnnotationSession();
+    if (!const bool.fromEnvironment('COMICNOTES_POC') ||
+        type != ComicType.local) {
+      return;
+    }
+    final services = AnnotationServicesScope.maybeOf(context);
+    if (services == null) return;
+    try {
+      final comic = LocalManager().find(cid, type);
+      if (comic == null) throw StateError('Local comic is missing');
+      annotations = services.openSession(
+        libraryKey: 'local:$cid:${comic.createdAt.millisecondsSinceEpoch}',
+        title: widget.name,
+        sourceRoot: FilePath.join(LocalManager().path, comic.directory),
+      );
+      if (annotations.all.any(
+        (note) => note.id == widget.initialAnnotationId,
+      )) {
+        annotations.selectedId = widget.initialAnnotationId;
+      }
+    } catch (error, stack) {
+      annotations.persistenceFailure = error;
+      Log.error('Annotations', error, stack);
+    }
+  }
+
+  void onAnnotationInputChanged(bool active) {
+    annotations.inputActive = active;
+    if (active) autoReading.stop();
+  }
+
+  bool _annotationExporting = false;
+  bool _annotationRelocating = false;
+  Future<void> recoverAnnotationDocument(String documentId) async {
+    if (_annotationRelocating ||
+        _annotationExporting ||
+        _annotationBackingUp ||
+        _sessionFrozen ||
+        _stateDisposed) {
+      return;
+    }
+    final recover = AnnotationServicesScope.maybeOf(context)?.recoverNotes;
+    if (recover == null) return;
+    final task = imageWork.start();
+    if (task == null) return;
+    final session = annotations;
+    bool current() =>
+        mounted &&
+        !_stateDisposed &&
+        !_sessionFrozen &&
+        !task.isCancelled &&
+        identical(annotations, session);
+    _annotationRelocating = true;
+    onAnnotationInputChanged(true);
+    try {
+      if (await recover(
+            session: session,
+            documentId: documentId,
+            isCurrent: current,
+          ) &&
+          current() &&
+          mounted) {
+        _configureAnnotations();
+        _annotationViewportRevision++;
+        update();
+        updateShell();
+        showToast(message: '旧批注已恢复，引用链接保持有效', context: context);
+      }
+    } catch (error, stack) {
+      Log.error('Annotation recovery', error, stack);
+      if (mounted && current()) {
+        showToast(message: '恢复失败：$error', context: context);
+      }
+    } finally {
+      _annotationRelocating = false;
+      session.inputActive = false;
+      task.finish();
+    }
+  }
+
+  Future<void> recoverAnnotationDocumentManually(String documentId) async {
+    if (_annotationRelocating ||
+        _annotationExporting ||
+        _annotationBackingUp ||
+        _sessionFrozen ||
+        _stateDisposed) {
+      return;
+    }
+    final prepare = AnnotationServicesScope.maybeOf(
+      context,
+    )?.prepareManualRecovery;
+    if (prepare == null) return;
+    final cancelled = Completer<void>();
+    final task = imageWork.start(
+      onCancel: () {
+        if (!cancelled.isCompleted) cancelled.complete();
+      },
+    );
+    if (task == null) return;
+    final session = annotations;
+    bool current() =>
+        mounted &&
+        !_stateDisposed &&
+        !_sessionFrozen &&
+        !task.isCancelled &&
+        identical(annotations, session);
+    _annotationRelocating = true;
+    onAnnotationInputChanged(true);
+    try {
+      final restored = await showAnnotationManualRecoveryDialog(
+        context,
+        prepare: ({required isCurrent}) => prepare(
+          session: session,
+          documentId: documentId,
+          isCurrent: isCurrent,
+        ),
+        isCurrent: current,
+        cancelSignal: cancelled.future,
+      );
+      if (restored && current() && mounted) {
+        _configureAnnotations();
+        _annotationViewportRevision++;
+        update();
+        updateShell();
+        showToast(message: '旧批注已按确认的页映射恢复，引用链接保持有效', context: context);
+      }
+    } catch (error, stack) {
+      Log.error('Manual annotation recovery', error, stack);
+      if (current() && mounted) {
+        showToast(message: '手工恢复失败：$error', context: context);
+      }
+    } finally {
+      _annotationRelocating = false;
+      session.inputActive = false;
+      task.finish();
+    }
+  }
+
+  Future<String?> relocateAnnotationSource() async {
+    if (_annotationRelocating ||
+        _annotationExporting ||
+        _annotationBackingUp ||
+        _sessionFrozen ||
+        _stateDisposed) {
+      return null;
+    }
+    final relocate = AnnotationServicesScope.maybeOf(context)?.relocateOriginal;
+    if (relocate == null) return null;
+    final task = imageWork.start();
+    if (task == null) return null;
+    final session = annotations;
+    _annotationRelocating = true;
+    onAnnotationInputChanged(true);
+    try {
+      final changed = await relocate(
+        session: session,
+        isCurrent: () =>
+            mounted &&
+            !_stateDisposed &&
+            !_sessionFrozen &&
+            !task.isCancelled &&
+            identical(annotations, session),
+      );
+      return changed ? '原件已重新关联，批注 ID 与坐标保持不变' : null;
+    } finally {
+      _annotationRelocating = false;
+      session.inputActive = false;
+      task.finish();
+    }
+  }
+
+  bool _annotationBackingUp = false;
+  Future<void> backupAnnotations() async {
+    if (_annotationBackingUp ||
+        _annotationRelocating ||
+        _annotationExporting ||
+        _sessionFrozen ||
+        _stateDisposed) {
+      return;
+    }
+    final backup = AnnotationServicesScope.maybeOf(context)?.backupNotes;
+    if (backup == null) return;
+    final task = imageWork.start();
+    if (task == null) return;
+    _annotationBackingUp = true;
+    final session = annotations;
+    String? output;
+    onAnnotationInputChanged(true);
+    try {
+      output = await backup(
+        isCancelled: () =>
+            task.isCancelled ||
+            !mounted ||
+            _stateDisposed ||
+            !identical(annotations, session),
+      );
+    } on AnnotationExportCancelled {
+      // Closing the reader abandons an unpublished backup.
+    } catch (error, stack) {
+      Log.error('Annotation backup', error, stack);
+      if (mounted && !task.isCancelled) {
+        showToast(message: '备份失败：$error', context: context);
+      }
+    } finally {
+      _annotationBackingUp = false;
+      session.inputActive = false;
+      task.finish();
+    }
+    if (output != null && mounted && !task.isCancelled) {
+      unawaited(
+        showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('全部批注已备份'),
+            content: SelectableText('包含所有书籍的笔记、标签与来源映射。图片文件需单独保留。\n\n$output'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> exportAnnotations() async {
+    if (_annotationExporting ||
+        _annotationRelocating ||
+        _annotationBackingUp ||
+        _sessionFrozen ||
+        _stateDisposed) {
+      return;
+    }
+    final export = AnnotationServicesScope.maybeOf(context)?.exportNotes;
+    if (export == null) return;
+    final task = imageWork.start();
+    if (task == null) return;
+    _annotationExporting = true;
+    final session = annotations;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    var cancelled = false, finished = false, dialogClosed = false;
+    AnnotationExportResult? completed;
+    final progress = DialogRoute<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('正在导出图文笔记'),
+        content: const SizedBox(
+          height: 48,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => cancelled = true,
+            child: const Text('取消导出'),
+          ),
+        ],
+      ),
+    );
+    unawaited(
+      navigator.push(progress).then((_) {
+        dialogClosed = true;
+        if (!finished) cancelled = true;
+      }),
+    );
+    onAnnotationInputChanged(true);
+    try {
+      final result = await export(
+        session: session,
+        title: widget.name,
+        isCancelled: () =>
+            task.isCancelled ||
+            cancelled ||
+            _stateDisposed ||
+            !mounted ||
+            !identical(annotations, session),
+      );
+      completed = result;
+    } on AnnotationExportCancelled {
+      // Cancelling before publication leaves no partially exported notebook.
+    } catch (error, stack) {
+      Log.error('Annotation export', error, stack);
+      if (mounted && !task.isCancelled) {
+        showToast(message: '导出失败：$error', context: context);
+      }
+    } finally {
+      finished = true;
+      if (navigator.mounted &&
+          !dialogClosed &&
+          progress.navigator == navigator) {
+        navigator.removeRoute(progress);
+      }
+      _annotationExporting = false;
+      session.inputActive = false;
+      task.finish();
+    }
+    final result = completed;
+    if (result != null && mounted && !task.isCancelled) {
+      unawaited(
+        showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('已导出 ${result.annotationCount} 条批注'),
+            content: SingleChildScrollView(
+              child: SelectableText(
+                '${result.markdownPath}${result.warnings.isEmpty ? '' : '\n\n${result.warnings.join('\n')}'}',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
   late final imageFavorites = HistoryScope.readImages(context);
   final _targetValidity = ValueNotifier(0);
   final _shellChanges = ValueNotifier(0);
+  final _readerCanvasKey = GlobalKey();
   Listenable get shellChanges => _shellChanges;
 
   void updateShell() {
@@ -151,7 +674,11 @@ class ReaderState extends State<Reader>
   }
 
   ReaderImagePickContext? readImagePickContext() {
-    if (!mounted || _stateDisposed || _sessionFrozen || _session.isHeld) {
+    if (!mounted ||
+        _stateDisposed ||
+        _sessionFrozen ||
+        _session.isHeld ||
+        annotations.inputActive) {
       return null;
     }
     final viewport = imageViewController;
@@ -249,7 +776,11 @@ class ReaderState extends State<Reader>
   }
 
   ReaderGestureRequest? createGestureRequest() {
-    if (!mounted || _stateDisposed || _sessionFrozen || _session.isHeld) {
+    if (!mounted ||
+        _stateDisposed ||
+        _sessionFrozen ||
+        _session.isHeld ||
+        annotations.inputActive) {
       return null;
     }
     final content = controller.content, viewport = imageViewController;
@@ -269,6 +800,7 @@ class ReaderState extends State<Reader>
     final layout = pageLayout;
     bool targetCurrent() =>
         mounted &&
+        !annotations.inputActive &&
         !_stateDisposed &&
         !_sessionFrozen &&
         !_session.isHeld &&
@@ -383,6 +915,12 @@ class ReaderState extends State<Reader>
   void didUpdateWidget(covariant Reader oldWidget) {
     super.didUpdateWidget(oldWidget);
     _targetValidity.value++;
+    if (oldWidget.cid != widget.cid || oldWidget.type != widget.type) {
+      _annotationFocusMode = widget.initialAnnotationId != null;
+      _pendingAnnotationFocusId = widget.initialAnnotationId;
+      _annotationJumpRevision++;
+      _configureAnnotations();
+    }
   }
 
   ReaderChapterCommentsRequest? createChapterCommentsRequest() {
@@ -1103,6 +1641,7 @@ class ReaderState extends State<Reader>
       appdata.updateSettings(edit, sync: false);
 
   bool get _usesAutomaticReadingMode =>
+      !_annotationFocusMode &&
       preferences.autoReaderMode &&
       appdata.settings.comicReaderModeOverride(cid, type.sourceKey) == null;
 
@@ -1284,7 +1823,10 @@ class ReaderState extends State<Reader>
   }
 
   void applyReadingMode(ReaderMode next) {
-    if (!mounted || _sessionFrozen || mode == next) return;
+    if (!mounted || _sessionFrozen || (mode == next && !_annotationFocusMode)) {
+      return;
+    }
+    _annotationFocusMode = false;
     resetPageAnimation();
     mode = next;
     // Convert the old display page to its source image before rebuilding.
@@ -1329,6 +1871,9 @@ class ReaderState extends State<Reader>
     mode = ReaderMode.fromKey(
       appdata.settings.readerSettings(cid, type.sourceKey).readerMode,
     );
+    if (_annotationFocusMode && !mode.isGallery) {
+      mode = ReaderMode.galleryLeftToRight;
+    }
     history = widget.history;
     final historyManager = HistoryScope.read(context);
     final durationHistory = widget.history;
@@ -1450,8 +1995,10 @@ class ReaderState extends State<Reader>
     }
     _volumeRoute = ModalRoute.of(context);
     _volumeCurrent = _volumeRoute?.isCurrent ?? true;
+    if (_isInitialized && _volumeCurrent) _refreshAnnotations();
     _observeVolume(_updateVolume());
     if (!_isInitialized) {
+      _configureAnnotations();
       initImagesPerPage(widget.initialPage ?? 1);
       _isInitialized = true;
     } else {
@@ -1800,6 +2347,7 @@ class ReaderState extends State<Reader>
   @override
   void dispose() {
     _stateDisposed = true;
+    annotations.close();
     _targetValidity.value++;
     viewportBinding.dispose();
     controller.dispose();
@@ -1813,6 +2361,7 @@ class ReaderState extends State<Reader>
     _beginCloseVolume();
     _imageCachePolicy.dispose();
     disposeReaderWindow();
+    annotationSelectionRequests.dispose();
     _targetValidity.dispose();
     _shellChanges.dispose();
     super.dispose();
@@ -1866,10 +2415,13 @@ class ReaderState extends State<Reader>
               child: ReaderShellHost(
                 reader: this,
                 child: ReaderGestureHost(
+                  key: _readerCanvasKey,
                   reader: this,
                   child: ReaderImagesHost(
                     reader: this,
-                    key: Key(mode.isWaterfall ? mode.key : chapter.toString()),
+                    key: Key(
+                      '${mode.isWaterfall ? mode.key : chapter.toString()}${_annotationViewportRevision == 0 ? '' : ':annotation:$_annotationViewportRevision'}',
+                    ),
                   ),
                 ),
               ),
@@ -1881,7 +2433,52 @@ class ReaderState extends State<Reader>
   }
 
   void onKeyEvent(KeyEvent event) {
-    if (_sessionFrozen) return;
+    if (!mounted ||
+        _stateDisposed ||
+        _sessionFrozen ||
+        annotations.inputActive) {
+      return;
+    }
+    if (event is KeyDownEvent &&
+        annotationsEnabled &&
+        (HardwareKeyboard.instance.isMetaPressed ||
+            HardwareKeyboard.instance.isControlPressed)) {
+      if (event.logicalKey == LogicalKeyboardKey.keyF) {
+        final request = ++_annotationSearchRequest;
+        final session = annotations;
+        update();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted &&
+              !_stateDisposed &&
+              !_sessionFrozen &&
+              request == _annotationSearchRequest &&
+              identical(session, annotations) &&
+              !session.inputActive) {
+            _readerCanvasKey.currentContext
+                ?.findAncestorStateOfType<ReaderScaffoldState>()
+                ?.openAnnotationInspector();
+          }
+        });
+        return;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyN &&
+          HardwareKeyboard.instance.isShiftPressed &&
+          !GlobalPreferenceStore(
+            appdata.settings,
+          ).read(ImageProcessingPreferences.enabled)) {
+        annotationSelectionRequests.value++;
+        return;
+      }
+    }
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.keyS &&
+        (HardwareKeyboard.instance.isMetaPressed ||
+            HardwareKeyboard.instance.isControlPressed) &&
+        const bool.fromEnvironment('COMICNOTES_POC') &&
+        type == ComicType.local) {
+      unawaited(exportAnnotations());
+      return;
+    }
     if (event.logicalKey == LogicalKeyboardKey.f12 && event is KeyUpEvent) {
       fullscreen();
     }
@@ -1931,7 +2528,10 @@ class ReaderState extends State<Reader>
   /// Get the size of the reader.
   /// The size is not always the same as the size of the screen.
   Size get size {
-    var renderBox = context.findRenderObject() as RenderBox;
+    final canvas = _readerCanvasKey.currentContext?.findRenderObject();
+    final renderBox = canvas is RenderBox && canvas.hasSize
+        ? canvas
+        : context.findRenderObject() as RenderBox;
     return renderBox.size;
   }
 }

@@ -11,7 +11,11 @@
 *.ico binary
 *.icns binary
 *.webp binary
+*.pdf binary
 *.svg text eol=lf
+
+# Unified patch context lines intentionally contain a single space.
+.github/scripts/flutter_semantics_3_41_4.patch whitespace=-blank-at-eol
 
 *.jks binary
 *.keystore binary
